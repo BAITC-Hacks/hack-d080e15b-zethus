@@ -129,8 +129,12 @@ class DialogManager:
             )
         except BackendError as exc:
             reply = self._backend_error(exc)
+        # Считаем именно подряд идущие неясные реплики, включая локальные ответы.
+        if "SYS_UNCLEAR" not in self._routed:
+            self.state.unclear_count = 0
         reply = mask_private(reply)
-        self.state.remember(text, reply)
+        if text.strip() and len(text) <= MAX_UTTERANCE_CHARS:
+            self.state.remember(text, reply)
         active = self.state.active
         trace = mask_private(
             {
@@ -156,6 +160,8 @@ class DialogManager:
 
     def _handle(self, text: str) -> str:
         if not text or len(text) > MAX_UTTERANCE_CHARS:
+            self.state.pending = None
+            self.state.awaiting_resume = False
             return self.say(
                 "Напишите коротко, чем помочь.", "Қалай көмектесе аламын? Қысқаша жазыңызшы."
             )
@@ -380,8 +386,13 @@ class DialogManager:
 
         # Автоматически выбрать единственный подходящий полис, иначе уточнить.
         required = list(scenario["slots"]["required"])
-        if action == "resend_documents" and "policy_number" not in required:
-            required.append("policy_number")
+        # Например, франшиза необязательна для консультации, но нужна для расчёта.
+        # Спрашиваем её до вызова backend, а не после технической ошибки действия.
+        required.extend(
+            field
+            for field in self.catalog.actions[action]["inputs"]
+            if field in self.catalog.slots and field not in required
+        )
         if "policy_number" in required:
             product = PRODUCTS.get(sid) or task.slots.get("product_type")
             if not task.slots.get("policy_number"):

@@ -322,6 +322,56 @@ class DialogTests(unittest.TestCase):
         )
         self.assertIn("30400", result.text)
 
+    def test_casco_asks_for_deductible_before_calling_backend(self):
+        result = self.turn(ids=["SC03"], slots={"car_value": 27000000, "car_year": 2022})
+        self.assertEqual(result.trace["expected_slot"], "franchise")
+        self.assertNotIn("Не хватает данных", result.text)
+        self.assertFalse(result.trace["actions"])
+        result = self.turn(mode="continue", slots={"franchise": 50000})
+        self.assertIn("1215000", result.text)
+
+    def test_unclear_handoff_requires_consecutive_unclear_turns(self):
+        self.turn(ids=["SYS_UNCLEAR"])
+        self.manager.handle("Здравствуйте")
+        result = self.turn(ids=["SYS_UNCLEAR"])
+        self.assertFalse(result.trace["operator_handoff"])
+        result = self.turn(ids=["SYS_UNCLEAR"])
+        self.assertTrue(result.trace["operator_handoff"])
+
+    def test_rejected_long_correction_cannot_confirm_previous_booking(self):
+        self.booking()
+        self.manager.handle("Перенесите на другой день. " * 200)
+        self.assertIsNone(self.manager.state.pending)
+        result = self.manager.handle("да")
+        self.assertEqual(self.manager.backend.appointments, [])
+        self.assertFalse(
+            any(
+                a["mode"] == "execute" and a["name"] == "book_appointment"
+                for a in result.trace["actions"]
+            )
+        )
+
+    def test_payment_facts_are_scoped_to_requested_product(self):
+        self.turn(ids=["SC31"], slots={"product_type": "casco"}, text="КАСКО в рассрочку?")
+        answer_data = self.llm.facts[-1]
+        self.assertEqual(answer_data["product_type"], "casco")
+        self.assertEqual(
+            answer_data["facts"]["installments"],
+            {
+                "casco": "2 or 4 equal payments, no overpayment",
+            },
+        )
+
+    def test_unsupported_installment_terms_are_not_inferred_from_other_products(self):
+        self.turn(ids=["SC31"], slots={"product_type": "property"})
+        answer_data = self.llm.facts[-1]
+        self.assertEqual(answer_data["facts"]["installments"], {})
+
+    def test_payment_lookup_does_not_modify_knowledge_base(self):
+        self.turn(ids=["SC31"], slots={"product_type": "casco"})
+        self.turn(ids=["SC31"])
+        self.assertIn("ogpo", self.llm.facts[-1]["facts"]["installments"])
+
     def test_urgent_intent_is_selected_first(self):
         result = self.turn(ids=["SC25", "SC11"])
         self.assertEqual(result.trace["active_scenario"], "SC11")

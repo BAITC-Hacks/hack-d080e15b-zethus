@@ -260,6 +260,7 @@ class MockBackend:
             return {
                 "facts": self.knowledge(args.get("scenario_id"), args.get("product_type")),
                 "question": args["topic"],
+                "product_type": args.get("product_type"),
             }
         if name == "transfer_to_operator":
             queues = self.catalog.read("actions")["queues"]
@@ -389,7 +390,14 @@ class MockBackend:
             "SC40": "products",
         }
         section = sections.get(scenario_id, "company")
-        facts = self.kb[section]
+        facts = deepcopy(self.kb[section])
+        if section == "payments" and product:
+            # Не смешиваем рассрочку КАСКО с полной оплатой ОГПО или ВЗР.
+            # Для ДМС в каталоге есть только условия индивидуального продукта.
+            selected = "dms_individual" if product == "dms" else product
+            facts["installments"] = {
+                key: value for key, value in facts["installments"].items() if key == selected
+            }
         if section == "products":
             selected = (
                 "dms"
@@ -400,4 +408,4 @@ class MockBackend:
             )
             if selected in facts:
                 facts = facts[selected]
-        return deepcopy(facts)
+        return facts

@@ -30,6 +30,7 @@ from src.config import (
 )
 from src.tools.audio import AudioError, AudioService
 from src.tools.telegram_api import TelegramAPI, TelegramError
+from src.tools.terminal_qr import print_bot_link
 
 LOGGER = logging.getLogger(__name__)
 WELCOME = (
@@ -147,6 +148,13 @@ class TelegramBot:
                 session.manager.state.pending = None
                 self.api.send_text(chat_id, str(exc))
                 return
+            except TelegramError:
+                session.manager.state.pending = None
+                self.api.send_text(
+                    chat_id,
+                    "Не удалось загрузить голосовое сообщение. Повторите его или напишите текстом.",
+                )
+                return
             stt_ms = round((time.perf_counter() - started) * 1000)
             self.api.send_text(chat_id, "Распознано / Танылған мәтін: " + mask_private(text))
         elif not text:
@@ -242,6 +250,7 @@ def main() -> int:
                 f"Бот @{identity['username']} запущен. Откройте его в Telegram и нажмите Start. Ctrl+C — остановить.",
                 flush=True,
             )
+            print_bot_link(identity["username"])
             while True:
                 try:
                     updates = api.call(
@@ -274,6 +283,10 @@ def main() -> int:
                     try:
                         bot.process_update(update)
                     except TelegramError as exc:
+                        # При сбое доставки клиент мог не увидеть новые условия.
+                        chat_id = update.get("message", {}).get("chat", {}).get("id")
+                        if chat_id in bot.sessions:
+                            bot.sessions[chat_id].manager.state.pending = None
                         LOGGER.warning("%s; сообщение не повторяется автоматически", exc)
                         time.sleep(exc.retry_after)
                     except Exception as exc:

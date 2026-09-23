@@ -2,7 +2,9 @@
 
 import io
 import json
+import os
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -11,11 +13,13 @@ from urllib.error import URLError
 
 from test_dialog import FakeLLM
 
+from src import telegram_bot
 from src.agent.dialog_manager import DialogManager
 from src.agent.state import PendingAction, Task
 from src.telegram_bot import TelegramBot, save_offset
 from src.tools.audio import AudioError, AudioService
 from src.tools.telegram_api import TelegramAPI, TelegramError
+from src.tools.terminal_qr import print_bot_link
 
 
 def update(number, *, user=1, text=None, voice=None, kind="private"):
@@ -118,6 +122,79 @@ class TelegramBotTests(unittest.TestCase):
         self.assertTrue(any("Здравствуйте" in text for text in messages))
         self.assertIn("Озвучивание недоступно", messages)
         self.api.send_voice.assert_not_called()
+
+    def test_download_failure_invalidates_previous_confirmation(self):
+        self.bot.process_update(update(1, text="/start"))
+        manager = self.bot.sessions[1].manager
+        manager.state.pending = PendingAction("book_appointment", {}, {})
+        self.api.download_voice.side_effect = TelegramError()
+        self.bot.process_update(update(2, voice={"file_id": "x", "duration": 2}))
+        self.assertIsNone(manager.state.pending)
+        self.assertEqual(manager.state.turn, 0)
+        self.assertIn("загрузить", self.api.send_text.call_args.args[1])
+        self.audio.transcribe.assert_not_called()
+
+
+class StartupTests(unittest.TestCase):
+    def test_startup_encodes_current_bot_from_get_me(self):
+        import segno
+
+        rendered_codes = []
+        for username in ("JuryFirst_bot", "JurySecond_bot"):
+            with self.subTest(username=username), TemporaryDirectory() as directory:
+                output = io.StringIO()
+
+                def api_call(method, *args):
+                    if method == "getMe":
+                        return {"id": 12345, "username": username}
+                    if method == "getWebhookInfo":
+                        return {}
+                    if method == "getUpdates":
+                        raise KeyboardInterrupt
+                    raise AssertionError(f"Unexpected method: {method}")
+
+                with (
+                    patch.object(telegram_bot, "load_dotenv"),
+                    patch.object(telegram_bot, "PROJECT_ROOT", Path(directory)),
+                    patch.dict(
+                        os.environ,
+                        {
+                            "TELEGRAM_BOT_TOKEN": "12345:TEST_TOKEN",
+                            "OPENAI_API_KEY": "test-api-key",
+                            "TELEGRAM_ALLOWED_USER_IDS": "",
+                        },
+                    ),
+                    patch.object(telegram_bot, "TelegramAPI") as api,
+                    patch.object(telegram_bot, "OpenAI"),
+                    patch("segno.make_qr", wraps=segno.make_qr) as make_qr,
+                    redirect_stdout(output),
+                ):
+                    api.return_value.call.side_effect = api_call
+                    self.assertEqual(telegram_bot.main(), 0)
+                    make_qr.assert_called_once_with(f"https://t.me/{username}", error="m")
+                text = output.getvalue()
+                self.assertIn(f"https://t.me/{username}", text)
+                self.assertIn("█", text)
+                self.assertNotIn("TEST_TOKEN", text)
+                self.assertNotIn("test-api-key", text)
+                rendered_codes.append("\n".join(line for line in text.splitlines() if "█" in line))
+        self.assertNotEqual(*rendered_codes)
+
+    def test_link_remains_available_without_qr_dependency(self):
+        output = io.StringIO()
+        with patch.dict("sys.modules", {"segno": None}):
+            print_bot_link("JuryDemo_bot", out=output)
+        self.assertIn("https://t.me/JuryDemo_bot", output.getvalue())
+        self.assertIn("pip install", output.getvalue())
+
+    def test_terminal_without_block_characters_keeps_readable_link(self):
+        class LegacyTerminal(io.StringIO):
+            encoding = "cp1251"
+
+        output = LegacyTerminal()
+        print_bot_link("JuryDemo_bot", out=output)
+        self.assertIn("https://t.me/JuryDemo_bot", output.getvalue())
+        self.assertNotIn("█", output.getvalue())
 
 
 class AudioTests(unittest.TestCase):
