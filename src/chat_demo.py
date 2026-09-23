@@ -44,7 +44,7 @@ def main(argv=None) -> int:
             manager = DialogManager(llm, catalog)
             print("Saqta Insurance — текстовая демонстрация.")
             print(f"Учебная дата: {catalog.today}. Операции выполняются на учебных данных в памяти сеанса.")
-            print("Команды: /reset — новый сеанс, /state — состояние, /quit — выход.")
+            print("Команды: /demo — учебные клиенты, /reset — новый сеанс, /state — состояние, /quit — выход.")
             print("Бот: Здравствуйте! Чем помочь? / Сәлеметсіз бе! Қалай көмектесе аламын?", flush=True)
             iterator = iter(turns) if turns is not None else None
             while True:
@@ -60,6 +60,9 @@ def main(argv=None) -> int:
                         break
                 if text in {"/quit", "/exit"}:
                     break
+                if text == "/demo":
+                    print(catalog.demo_help(), flush=True)
+                    continue
                 if text == "/reset":
                     manager = DialogManager(llm, catalog)
                     print("Бот: Начат новый сеанс, учебные данные восстановлены.", flush=True)
@@ -71,11 +74,13 @@ def main(argv=None) -> int:
                         "active_scenario": state.active.scenario_id if state.active else None,
                         "slots": state.active.slots if state.active else {},
                         "awaiting_confirmation": state.pending is not None,
+                        "operator_handoff": state.operator_handoff,
+                        "awaiting_resume": state.awaiting_resume,
                         "completed_actions": [event["action"] for event in manager.backend.events],
                     }), ensure_ascii=False, indent=2), flush=True)
                     continue
                 if text.startswith("/"):
-                    print("Команды: /reset, /state, /quit.", flush=True)
+                    print("Команды: /demo, /reset, /state, /quit.", flush=True)
                     continue
                 result = manager.handle(text)
                 print("Бот:", result.text, flush=True)

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from src.main_router import PROJECT_ROOT
+from src.agent.numbers import identifier_digits
 
 
 CITY_ALIASES = {
@@ -44,13 +45,29 @@ class Catalog:
             for s in self.system.values()
         ]
 
+    def demo_help(self) -> str:
+        """Только явно учебные профили из поставляемого датасета, без авторизации."""
+        clients = {c["client_id"]: c for c in self.read("mock_backend")["clients"]}
+        examples = (("C002", "ДМС: запись к врачу / дәрігерге жазылу"),
+                    ("C001", "ОГПО и КАСКО / ОГПО және КАСКО"),
+                    ("C003", "Просроченный ОГПО / мерзімі өткен ОГПО"))
+        lines = ["Учебные клиенты / Оқу клиенттері:"]
+        lines.extend(f"{label}: {clients[cid]['phone']}" for cid, label in examples)
+        lines.append("Отправьте запрос, а затем выбранный номер при вопросе о телефоне. "
+                     "Ваш личный номер может отсутствовать в учебной базе. /reset — новый разговор.")
+        return "\n".join(lines)
+
     def normalize(self, name: str, value):
         """Модель извлекает значения; окончательная проверка остаётся в Python."""
         spec = self.slots[name]
         if isinstance(value, str):
             value = value.strip()
+        if name in {"phone", "iin"} and isinstance(value, str):
+            value = identifier_digits(value) or value
         if name == "phone" and isinstance(value, str):
-            digits = re.sub(r"[\s()+-]", "", value)
+            digits = re.sub(r"[\s()+\-–—]", "", value)
+            if len(digits) == 10 and digits.isascii() and digits.isdigit() and not value.startswith("+"):
+                value = "+7" + digits
             if len(digits) == 11 and digits[0] in "78":
                 value = "+7" + digits[1:]
         if name in {"policy_number", "claim_number", "vehicle_plate", "culprit_vehicle_plate"} and isinstance(value, str):
@@ -105,7 +122,9 @@ def mask_private(value):
     if isinstance(value, str):
         value = re.sub(r"(?<!\d)\d{12}(?!\d)", lambda m: "********" + m[0][-4:], value)
         # В исходной реплике номер может содержать скобки, пробелы и дефисы.
-        value = re.sub(r"(?<![\w+])(?:\+7|[78])(?:[ ()-]*\d){10}(?!\d)",
+        value = re.sub(r"(?<![\w+])(?:\+7|[78])(?:[ ()\-–—]*\d){10}(?!\d)",
                        lambda m: "+7*******" + re.sub(r"\D", "", m[0])[-3:], value)
+        value = re.sub(r"(?<![\w+])7(?:[ ()\-–—]*\d){9}(?!\d)",
+                       lambda m: "*******" + re.sub(r"\D", "", m[0])[-3:], value)
         value = re.sub(r"([\w.+-])[^@\s]*@([^\s]+)", r"\1***@\2", value)
     return value

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from urllib.error import URLError
 
 from src.agent.dialog_manager import DialogManager
-from src.agent.state import PendingAction
+from src.agent.state import PendingAction, Task
 from src.telegram_bot import TelegramBot, save_offset
 from src.tools.audio import AudioError, AudioService
 from src.tools.telegram_api import TelegramAPI, TelegramError
@@ -53,6 +53,27 @@ class TelegramBotTests(unittest.TestCase):
         self.assertIsNot(self.bot.sessions[1].manager, first)
         self.assertEqual(self.bot.sessions[1].manager.state.turn, 0)
         self.assertEqual(self.bot.sessions[2].manager.state.turn, 1)
+
+    def test_demo_shows_dataset_numbers_without_identifying_user(self):
+        self.bot.process_update(update(1, text="/demo"))
+        text = self.api.send_text.call_args.args[1]
+        self.assertIn("+77010000002", text)
+        self.assertIn("ДМС", text)
+        self.assertIsNone(self.bot.sessions[1].manager.state.client_id)
+        self.assertEqual(self.bot.sessions[1].manager.state.turn, 0)
+        self.audio.synthesize.assert_not_called()
+
+    def test_phone_voice_uses_slot_context_and_literal_transcript_digits(self):
+        self.bot.process_update(update(1, text="/start"))
+        manager = self.bot.sessions[1].manager
+        manager.state.active = Task("SC25")
+        manager.state.expected_slot = "phone"
+        manager.llm.failure = True
+        self.audio.transcribe.return_value = "701-000-00-02"
+        self.bot.process_update(update(2, voice={"file_id": "x", "duration": 7}))
+        self.audio.transcribe.assert_called_once_with(b"OggS speech", expected_slot="phone")
+        self.assertEqual(manager.state.client_id, "C002")
+        self.assertIn("SQ-DMS-604220", self.audio.synthesize.call_args.args[0])
 
     def test_only_private_allowed_chats_reach_model(self):
         self.bot.allowed_users = {1}
@@ -99,6 +120,17 @@ class TelegramBotTests(unittest.TestCase):
 
 
 class AudioTests(unittest.TestCase):
+    def test_phone_uses_dedicated_context_without_example_numbers(self):
+        client = MagicMock()
+        client.audio.transcriptions.create.return_value = SimpleNamespace(text="701-000-00-02")
+        result = AudioService(client).transcribe(b"OggS speech", expected_slot="phone")
+        self.assertEqual(result, "701-000-00-02")
+        args = client.audio.transcriptions.create.call_args.kwargs
+        self.assertEqual(args["model"], "gpt-4o-transcribe")
+        self.assertIn("без добавления", args["prompt"])
+        self.assertNotIn("701", args["prompt"])
+        self.assertNotIn("language", args)
+
     def test_transcription_keeps_source_language_and_rejects_empty_text(self):
         client = MagicMock()
         client.audio.transcriptions.create.return_value = SimpleNamespace(text="Сәлем!", segments=[])

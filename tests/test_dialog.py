@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 from src.agent.catalog import Catalog, mask_private
 from src.agent.dialog_manager import DialogManager
 from src.agent.llm import DialogLLM, ModelError, Understanding
+from src.agent.numbers import identifier_digits
 from src.agent.state import Task
 from src.tools.backend import BackendError, MockBackend
 
@@ -95,6 +96,99 @@ class DialogTests(unittest.TestCase):
         self.assertIn("2026-09-29", result.text)
         self.assertEqual(self.manager.state.client_id, "C003")
         self.assertIsNone(self.manager.state.active)
+
+    def test_national_phone_number_identifies_without_llm_rewriting_digits(self):
+        self.turn(ids=["SC25"])
+        self.llm.failure = True
+        result = self.manager.handle("701-000-00-02")
+        self.assertEqual(self.manager.state.client_id, "C002")
+        self.assertIn("SQ-DMS-604220", result.text)
+        self.assertNotIn("701-000-00-02", result.trace["transcript"])
+
+    def test_short_phone_number_is_not_completed_or_looked_up(self):
+        self.turn(ids=["SC25"])
+        self.llm.failure = True
+        result = self.manager.handle("7-100-00-02")
+        self.assertEqual(result.trace["expected_slot"], "phone")
+        self.assertIn("текстом", result.text)
+        self.assertIn("/demo", result.text)
+        self.assertNotIn("phone", self.manager.state.active.slots)
+        self.assertEqual(self.manager.backend.events, [])
+
+    def test_phone_normalization_accepts_complete_formats_only(self):
+        for phone in ("+77010000002", "8 (701) 000-00-02", "7010000002", "701–000–00–02"):
+            with self.subTest(phone=phone):
+                self.assertEqual(self.catalog.normalize("phone", phone), "+77010000002")
+        for phone in ("7-100-00-02", "+7010000002", "123456789012", "номер неизвестен"):
+            with self.subTest(phone=phone), self.assertRaises(ValueError):
+                self.catalog.normalize("phone", phone)
+
+    def test_spoken_phone_numbers_keep_all_digits_and_leading_zeroes(self):
+        cases = {
+            "плюс семь, семьсот один, ноль ноль ноль, ноль ноль, ноль два": "+77010000002",
+            "жеті, жеті жүз бір, нөл нөл нөл, нөл нөл, нөл екі": "77010000002",
+            "Ноль, один, два, три.": "0123",
+            "7, 701, 000, 00, 02": "77010000002",
+            "он екі": "12",
+            "десять два": "102",
+        }
+        for spoken, expected in cases.items():
+            with self.subTest(spoken=spoken):
+                self.assertEqual(identifier_digits(spoken), expected)
+        self.assertIsNone(identifier_digits("Хочу узнать стоимость семи полисов"))
+
+    def test_spoken_phone_answer_does_not_need_llm(self):
+        self.turn(ids=["SC25"])
+        self.llm.failure = True
+        self.manager.handle("жеті, жеті жүз бір, нөл нөл нөл, нөл нөл, нөл екі")
+        self.assertEqual(self.manager.state.client_id, "C002")
+
+    def test_four_spoken_digits_cannot_turn_into_complete_phone(self):
+        self.turn(ids=["SC25"])
+        result = self.manager.handle("Ноль, один, два, три.")
+        self.assertEqual(result.trace["expected_slot"], "phone")
+        self.assertIsNone(self.manager.state.client_id)
+        self.assertEqual(self.manager.backend.events, [])
+
+    def test_operator_acknowledgement_does_not_resume_old_phone_question(self):
+        self.turn(ids=["SC21"])
+        handed_off = self.turn(ids=["SC12"])
+        self.assertTrue(handed_off.trace["operator_handoff"])
+        self.assertFalse(handed_off.trace["awaiting_resume"])
+        self.assertNotIn("Вернёмся", handed_off.text)
+        self.assertIn("не подключается", handed_off.text)
+        self.llm.failure = True
+        event_count = len(self.manager.backend.events)
+        for text in ("Да, подключайся.", "да", "Да, подключайте"):
+            result = self.manager.handle(text)
+            self.assertIsNone(result.trace["expected_slot"])
+            self.assertIsNone(result.trace["active_scenario"])
+            self.assertEqual(result.trace["suspended"], ["SC21"])
+            self.assertTrue(result.trace["operator_handoff"])
+            self.assertEqual(len(self.manager.backend.events), event_count)
+
+    def test_direct_operator_request_also_stops_automatic_resume(self):
+        self.turn(ids=["SC25"])
+        result = self.turn(ids=["SC37"])
+        self.assertTrue(result.trace["operator_handoff"])
+        self.assertFalse(result.trace["awaiting_resume"])
+        self.assertNotIn("Вернёмся", result.text)
+        result = self.turn(mode="resume", text="Хорошо, соедините меня")
+        self.assertIsNone(result.trace["active_scenario"])
+
+    def test_explicit_return_restores_task_after_handoff(self):
+        self.turn(ids=["SC25"])
+        self.turn(ids=["SC37"])
+        result = self.turn(mode="resume", text="Вернёмся к предыдущему вопросу")
+        self.assertEqual(result.trace["active_scenario"], "SC25")
+        self.assertEqual(result.trace["expected_slot"], "phone")
+        self.assertFalse(result.trace["operator_handoff"])
+
+    def test_new_request_after_handoff_uses_its_own_scenario(self):
+        self.turn(ids=["SC37"])
+        result = self.turn(ids=["SC25"])
+        self.assertEqual(result.trace["active_scenario"], "SC25")
+        self.assertFalse(result.trace["operator_handoff"])
 
     def test_multiple_policies_require_selection(self):
         result = self.turn(ids=["SC25"], slots={"phone": "+77010000001"})
@@ -321,6 +415,23 @@ class LLMContractTests(unittest.TestCase):
         manager.state.expected_slot = "injured"
         result = DialogLLM(client, manager.catalog).understand("нет", manager.state)
         self.assertIs(result.slots["injured"], False)
+
+    def test_phone_uses_source_digits_instead_of_model_invented_value(self):
+        client = self.response_client({"language": "ru", "mode": "continue",
+            "slots": {"phone": "+77010000001"}, "evidence": {"phone": "701-000-00-02"}})
+        manager = DialogManager(FakeLLM())
+        manager.state.active = Task("SC25")
+        manager.state.expected_slot = "phone"
+        result = DialogLLM(client, manager.catalog).understand("Вы ошиблись: 701-000-00-02", manager.state)
+        self.assertEqual(manager.catalog.normalize("phone", result.slots["phone"]), "+77010000002")
+
+    def test_model_cannot_expand_incomplete_phone_source(self):
+        client = self.response_client({"language": "ru", "mode": "continue",
+            "slots": {"phone": "+77010000002"}, "evidence": {"phone": "7-100-00-02"}})
+        manager = DialogManager(FakeLLM())
+        result = DialogLLM(client, manager.catalog).understand("7-100-00-02", manager.state)
+        with self.assertRaises(ValueError):
+            manager.catalog.normalize("phone", result.slots["phone"])
 
     def test_malformed_language_and_mode_return_model_error(self):
         # JSON корректен синтаксически, но модель может нарушить типы полей.

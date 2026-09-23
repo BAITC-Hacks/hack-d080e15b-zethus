@@ -14,17 +14,26 @@ class AudioService:
     def __init__(self, client: OpenAI):
         self.client = client
 
-    def transcribe(self, content: bytes) -> str:
+    def transcribe(self, content: bytes, *, expected_slot: str | None = None) -> str:
         if not content or len(content) > MAX_AUDIO_BYTES:
             raise AudioError("Отправьте голосовое сообщение размером до 10 МБ.")
         try:
+            identifiers = expected_slot in {"phone", "iin"}
+            prompt = ("Разговор на русском и казахском языках о страховании. "
+                      "Қазақша немесе орысша сөйлеуді кириллицамен жазыңыз. Do not translate.")
+            if identifiers:
+                prompt += (" Сейчас клиент может диктовать номер телефона или ИИН, в том числе "
+                           "по одной цифре или группами. Сохраните все произнесённые цифры и "
+                           "нули в исходном порядке, без добавления кода страны и пропущенных цифр. "
+                           "Числа записывайте цифрами. "
+                           "Если вместо номера задан другой вопрос, запишите его полностью.")
             # Telegram voice — OGG/Opus. Имя с .ogg указывает API формат файла.
             # Язык не фиксируем: в одном сообщении возможны русский и казахский.
             result = self.client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe", file=("voice.ogg", content, "audio/ogg"),
+                model="gpt-4o-transcribe" if identifiers else "gpt-4o-mini-transcribe",
+                file=("voice.ogg", content, "audio/ogg"),
                 response_format="json", temperature=0,
-                prompt=("Разговор на русском и казахском языках о страховании. "
-                        "Қазақша немесе орысша сөйлеуді кириллицамен жазыңыз. Do not translate."),
+                prompt=prompt,
             )
             text = result.text.strip()
             if not text or len(text) > 4000:

@@ -7,6 +7,7 @@ import re
 from openai import OpenAI, OpenAIError
 
 from src.agent.catalog import Catalog, mask_private
+from src.agent.numbers import identifier_digits
 from src.agent.state import DialogState
 from src.main_router import MODEL, build_system_prompt, predict_intent
 
@@ -63,6 +64,9 @@ class DialogLLM:
             "явное согласие вернуться к отложенному вопросу. cancel — отказ продолжать "
             "текущий вопрос, а НЕ расторжение страхового полиса: расторжение — new. "
             "Если активного сценария нет, обычное обращение — new. "
+            "operator_handoff означает, что предыдущий запрос передан оператору в демо. "
+            "После передачи «да, подключайте» не означает resume. resume без "
+            "awaiting_resume допустим только при явной просьбе вернуться к старому вопросу. "
             "Извлекай только значения, явно сообщённые клиентом в ТЕКУЩЕЙ реплике. "
             "Не копируй значения из истории, не выдумывай ИИН, полис или дату. "
             "Для КАЖДОГО элемента slots добавь evidence: точную цитату "
@@ -116,6 +120,8 @@ class DialogLLM:
             "expected_slot": state.expected_slot,
             "awaiting_confirmation": state.pending is not None,
             "has_deferred_tasks": bool(state.queue or state.suspended),
+            "awaiting_resume": state.awaiting_resume,
+            "operator_handoff": state.operator_handoff,
         }
         # Последнее реальное сообщение user всегда содержит именно новую реплику.
         # Ранее история в конце JSON отвлекала модель на предыдущий вопрос бота.
@@ -138,6 +144,15 @@ class DialogLLM:
             seen.add(key)
             if not isinstance(quote, str) or not quote.strip() or quote.casefold() not in text.casefold():
                 continue
+            if key in {"phone", "iin"}:
+                # Модель может неверно переписать или дополнить цифры даже при
+                # корректной цитате. Для цифровой записи берём саму цитату.
+                value = identifier_digits(quote)
+                if value is None:
+                    numbers = re.findall(r"\+?\d[\d\s()\-–—]*", quote)
+                    if len(numbers) != 1:
+                        continue
+                    value = numbers[0].strip()
             if key == "injured":
                 # Не выводим отсутствие пострадавших из одного лишь описания ДТП.
                 explicit = re.search(r"пострада|ранен|травм|зардап|жарақат|жаралан", quote.casefold())

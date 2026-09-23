@@ -27,6 +27,8 @@ class DialogState:
     suspended: list[Task] = field(default_factory=list)
     expected_slot: str | None = None
     pending: PendingAction | None = None
+    awaiting_resume: bool = False
+    operator_handoff: bool = False
     history: list[dict[str, str]] = field(default_factory=list)
     unclear_count: int = 0
     turn: int = 0

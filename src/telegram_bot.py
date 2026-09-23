@@ -28,7 +28,7 @@ WELCOME = (
     "Отправьте текст или голосовое сообщение на русском или казахском (до 60 секунд). "
     "Я отвечу текстом и синтезированным голосом. Используем учебные данные; "
     "реальные полисы и записи не создаются. Сообщения и аудио обрабатываются OpenAI.\n\n"
-    "/reset — новый разговор\n/voice_off — только текстовые ответы\n"
+    "/demo — телефоны учебных клиентов\n/reset — новый разговор\n/voice_off — только текстовые ответы\n"
     "/voice_on — включить озвучивание\n/trace_on — показывать трассировку\n"
     "/trace_off — скрыть трассировку\n/id — ваш Telegram ID"
 )
@@ -84,6 +84,9 @@ class TelegramBot:
         if command in {"/start", "/help"}:
             self.api.send_text(chat_id, WELCOME)
             return
+        if command == "/demo":
+            self.api.send_text(chat_id, session.manager.catalog.demo_help())
+            return
         if command == "/reset":
             session.manager = self.manager_factory()
             self.api.send_text(chat_id, "Начат новый разговор. Жаңа әңгіме басталды.")
@@ -109,7 +112,9 @@ class TelegramBot:
                 return
             try:
                 content = self.api.download_voice(voice["file_id"])
-                text = self.audio.transcribe(content)
+                expected = session.manager.state.expected_slot
+                text = (self.audio.transcribe(content, expected_slot=expected) if expected in {"phone", "iin"}
+                        else self.audio.transcribe(content))
             except (AudioError, ValueError) as exc:
                 session.manager.state.pending = None
                 self.api.send_text(chat_id, str(exc))

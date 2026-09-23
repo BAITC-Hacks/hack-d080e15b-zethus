@@ -7,6 +7,7 @@ import time
 
 from src.agent.catalog import Catalog, mask_private
 from src.agent.llm import ModelError
+from src.agent.numbers import identifier_digits
 from src.agent.state import DialogState, PendingAction, Task, TurnResult
 from src.tools.backend import BackendError, MockBackend
 
@@ -34,6 +35,11 @@ GREETINGS = {
     "доброе утро": "ru", "добрый вечер": "ru", "алло": "ru",
     "сәлем": "kk", "сәлеметсіз бе": "kk", "салем": "kk", "салеметсиз бе": "kk",
     "қайырлы күн": "kk", "қайырлы таң": "kk", "қайырлы кеш": "kk",
+}
+OPERATOR_ACKS = {
+    "да подключайся": "ru", "да подключайте": "ru", "подключайте": "ru",
+    "да соединяйте": "ru", "соединяйте": "ru", "жду оператора": "ru",
+    "иә қосыңыз": "kk", "қосыңыз": "kk", "операторды күтемін": "kk",
 }
 
 
@@ -74,6 +80,8 @@ class DialogManager:
             "client_id": self.state.client_id,
             "slots": active.slots if active else {}, "expected_slot": self.state.expected_slot,
             "awaiting_confirmation": self.state.pending is not None,
+            "awaiting_resume": self.state.awaiting_resume,
+            "operator_handoff": self.state.operator_handoff,
             "queued": [t.scenario_id for t in self.state.queue],
             "suspended": [t.scenario_id for t in self.state.suspended],
             "actions": self._actions, "latency_ms": {"total": round((time.perf_counter() - started) * 1000)},
@@ -90,17 +98,23 @@ class DialogManager:
             self.state.language = GREETINGS[answer]
             self._event = "greeting"
             reply = self.say("Здравствуйте!", "Сәлеметсіз бе!")
+            if self.state.operator_handoff:
+                return reply + " " + self._handoff_status()
             if self.state.pending:
                 return reply + " " + self._confirmation_text(self.state.pending.name, self.state.pending.preview)
             if self.state.expected_slot:
                 return reply + " " + self._ask(self.state.expected_slot)
             if not self.state.active and (self.state.queue or self.state.suspended):
+                self.state.awaiting_resume = True
                 return reply + self.say(" Вернёмся к оставшемуся вопросу?", " Қалған сұраққа оралайық па?")
             return reply + self.say(" Чем помочь?", " Қалай көмектесе аламын?")
         if answer in {"иә", "ия", "растаймын", "иә растаймын", "жоқ", "бас тартамын"}:
             self.state.language = "kk"
         elif answer in YES | NO:
             self.state.language = "ru"
+        if self.state.operator_handoff and (answer in YES or answer in OPERATOR_ACKS):
+            self.state.language = OPERATOR_ACKS.get(answer, self.state.language)
+            return self._handoff_status()
         if answer in YES and self.state.pending:
             pending = self.state.pending
             # Снять подтверждение ДО выполнения: повторное «да» не повторяет действие.
@@ -115,19 +129,37 @@ class DialogManager:
                 return self._complete(self.say("Хорошо, этот запрос отменён.", "Жақсы, бұл сұрау тоқтатылды."))
             self.state.queue.clear()
             self.state.suspended.clear()
+            self.state.awaiting_resume = False
+            self.state.operator_handoff = False
             return self.say("Хорошо. Чем ещё помочь?", "Жақсы. Тағы қалай көмектесе аламын?")
-        if answer in YES and not self.state.active and (self.state.queue or self.state.suspended):
+        if answer in YES and not self.state.active and self.state.awaiting_resume:
             return self._resume()
+
+        # Уже записанные цифры не отправляем модели для повторного переписывания.
+        # Эта ветка заполняет ожидаемое поле, а не выбирает бизнес-сценарий.
+        field = self.state.expected_slot
+        numeric = identifier_digits(text) if field in {"phone", "iin"} else None
+        if self.state.active and numeric is not None:
+            self.state.pending = None
+            try:
+                value = self.catalog.normalize(field, numeric)
+            except ValueError:
+                return self._ask(field, invalid=True)
+            self.state.active.slots[field] = value
+            return self._advance()
 
         # Любое уточнение или смена темы требует нового чтения условий операции.
         try:
             understood = self.llm.understand(text, self.state)
         finally:
             self.state.pending = None
+            self.state.awaiting_resume = False
         self.state.language = understood.language
         if understood.mode == "cancel":
             return self._complete(self.say("Запрос отменён.", "Сұрау тоқтатылды."))
         if understood.mode == "resume" and (self.state.queue or self.state.suspended):
+            if self.state.operator_handoff and not re.search(r"верн|возобнов|продолж|орала|жалғастыр", answer):
+                return self._handoff_status()
             return self._resume()
 
         normalized, invalid = {}, []
@@ -167,6 +199,8 @@ class DialogManager:
                 self.state.queue.clear()
                 self.state.suspended.clear()
                 self.state.expected_slot = None
+                self.state.awaiting_resume = False
+                self.state.operator_handoff = False
             elif sid == "SYS_UNCLEAR":
                 self.state.unclear_count += 1
                 if self.state.unclear_count >= 2:
@@ -177,6 +211,7 @@ class DialogManager:
                 self.state.unclear_count = 0
             return self.catalog.system[sid]["response"][self.state.language]
         self.state.unclear_count = 0
+        self.state.operator_handoff = False
         # Стабильная сортировка сохраняет порядок просьб внутри приоритета.
         business.sort(key=lambda sid: self.catalog.scenarios[sid]["priority"] != "urgent")
         tasks = [Task(sid, deepcopy(normalized)) for sid in business]
@@ -194,6 +229,12 @@ class DialogManager:
 
     def _ask(self, field: str, *, invalid=False) -> str:
         self.state.expected_slot = field
+        if field == "phone" and invalid:
+            return self.say(
+                "Не удалось получить полный номер. Напишите его текстом: +7 и ещё 10 цифр "
+                "или 10 цифр без кода страны; учебные номера доступны в /demo.",
+                "Толық нөмірді ала алмадым. Мәтінмен жазыңыз: +7 және тағы 10 цифр "
+                "немесе ел кодынсыз 10 цифр; оқу нөмірлері /demo командасында.")
         question = self.catalog.slots[field]["prompt"][self.state.language]
         prefix = self.say("Проверьте формат данных. ", "Деректердің пішімін тексеріңізші. ") if invalid else ""
         return prefix + question
@@ -286,13 +327,17 @@ class DialogManager:
             return self._confirmation_text(action, preview)
         result = self._call(action, arguments)
         reply = self._result_text(action, result)
+        if action == "transfer_to_operator":
+            return self._finish_handoff(reply)
         if sid == "SC30" and any(p["status"] == "charged_policy_not_issued" for p in result["payments"]):
             self._call("transfer_to_operator", {"queue": "operator_general", "summary": self._summary()})
             reply += self.say(" Запрос передан оператору в демо.", " Сұрау демода операторға жіберілді.")
+            return self._finish_handoff(reply)
         if sid == "SC38":
             self._call("transfer_to_operator", {"queue": "security_team", "summary": self._summary()})
             reply = self.say("Обращение зарегистрировано и передано службе безопасности в демо. Не сообщайте SMS-коды, CVV и PIN.",
                              "Өтініш тіркеліп, демода қауіпсіздік қызметіне жіберілді. SMS кодын, CVV және PIN кодын айтпаңыз.")
+            return self._finish_handoff(reply)
         return self._complete(reply)
 
     def _confirmation_text(self, action: str, result: dict) -> str:
@@ -351,15 +396,19 @@ class DialogManager:
             return self.say("Данные получены, но не удалось сформулировать ответ. Повторите запрос, пожалуйста.",
                             "Деректер алынды, бірақ жауапты құрастыру мүмкін болмады. Сұрауды қайталаңызшы.")
 
-    def _complete(self, reply: str) -> str:
+    def _complete(self, reply: str, *, offer_resume=True) -> str:
         self.state.active = None
         self.state.expected_slot = None
         self.state.pending = None
-        if self.state.queue or self.state.suspended:
+        self.state.operator_handoff = False
+        self.state.awaiting_resume = offer_resume and bool(self.state.queue or self.state.suspended)
+        if self.state.awaiting_resume:
             reply += self.say(" Вернёмся к оставшемуся вопросу?", " Қалған сұраққа оралайық па?")
         return reply
 
     def _resume(self) -> str:
+        self.state.awaiting_resume = False
+        self.state.operator_handoff = False
         if self.state.queue:
             next_task = self.state.queue.pop(0)
         elif self.state.suspended:
@@ -382,8 +431,24 @@ class DialogManager:
     def _handoff(self, queue: str, reason: str, *, unsupported=False) -> str:
         self._call("transfer_to_operator", {"queue": queue, "summary": {**self._summary(), "reason": reason}})
         self.state.unclear_count = 0
-        prefix = self.say("Для этой операции подключу оператора. ", "Бұл әрекет үшін операторды қосамын. ") if unsupported else ""
-        return self._complete(prefix + self.say("Контекст передан оператору в демо.", "Мәнмәтін демода операторға жіберілді."))
+        prefix = self.say("Эту операцию выполняет оператор. ", "Бұл әрекетті оператор орындайды. ") if unsupported else ""
+        return self._finish_handoff(prefix + self.say("Контекст передан оператору в демо.", "Мәнмәтін демода операторға жіберілді."))
+
+    def _finish_handoff(self, reply: str) -> str:
+        reply = self._complete(reply, offer_resume=False)
+        self.state.operator_handoff = True
+        self._event = "operator_handoff"
+        return reply + " " + self.say("Живой оператор в этом демо не подключается.",
+                                      "Бұл демода нақты оператор қосылмайды.")
+
+    def _handoff_status(self) -> str:
+        self._event = "operator_handoff"
+        reply = self.say("Передача оператору здесь учебная: живой оператор не подключается.",
+                         "Операторға жіберу — оқу әрекеті: нақты оператор қосылмайды.")
+        if self.state.queue or self.state.suspended:
+            reply += self.say(" Чтобы продолжить с ботом, скажите «вернёмся к предыдущему вопросу».",
+                              "Ботпен жалғастыру үшін «алдыңғы сұраққа оралайық» деңіз.")
+        return reply
 
     def _backend_error(self, exc: BackendError) -> str:
         self.state.pending = None
@@ -397,7 +462,8 @@ class DialogManager:
             attempts = task.attempts.get("phone", 0) + task.attempts.get("iin", 0)
             if attempts >= 3:
                 return self._handoff("operator_general", "Не удалось идентифицировать клиента")
-            return self.say("Клиент не найден. ", "Клиент табылмады. ") + self._ask("iin" if attempts >= 2 else field)
+            return self.say("Клиент не найден в учебной базе; список тестовых клиентов — /demo. ",
+                            "Клиент оқу базасынан табылмады; оқу клиенттері — /demo. ") + self._ask("iin" if attempts >= 2 else field)
         if field in self.catalog.slots and task.attempts[field] <= 2:
             task.slots.pop(field, None)
             prefix = self.say(exc.message + " ", "Деректер сәйкес келмейді немесе жазба табылмады. ")
