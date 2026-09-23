@@ -1,12 +1,12 @@
 """Голосовое демо в Telegram: python src/telegram_bot.py. Ctrl+C — остановка."""
 
-from dataclasses import dataclass, field
 import json
 import logging
 import os
-from pathlib import Path
 import sys
 import time
+from dataclasses import dataclass, field
+from pathlib import Path
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -17,10 +17,19 @@ from openai import OpenAI
 from src.agent.catalog import Catalog, mask_private
 from src.agent.dialog_manager import DialogManager
 from src.agent.llm import DialogLLM
-from src.main_router import PROJECT_ROOT
-from src.tools.audio import AudioError, AudioService, MAX_AUDIO_BYTES
+from src.config import (
+    API_MAX_RETRIES,
+    API_TIMEOUT_SECONDS,
+    MAX_AUDIO_BYTES,
+    MAX_CHAT_SESSIONS,
+    MAX_UTTERANCE_CHARS,
+    MAX_VOICE_SECONDS,
+    PROJECT_ROOT,
+    SESSION_TTL_SECONDS,
+    TELEGRAM_POLL_SECONDS,
+)
+from src.tools.audio import AudioError, AudioService
 from src.tools.telegram_api import TelegramAPI, TelegramError
-
 
 LOGGER = logging.getLogger(__name__)
 WELCOME = (
@@ -36,6 +45,8 @@ WELCOME = (
 
 @dataclass
 class ChatSession:
+    """Разговор и предпочтения одного пользователя Telegram."""
+
     manager: DialogManager
     voice: bool = True
     trace: bool = False
@@ -43,6 +54,8 @@ class ChatSession:
 
 
 class TelegramBot:
+    """Связывает личный чат, голосовой канал и независимый диалоговый сеанс."""
+
     def __init__(self, api, audio, manager_factory, allowed_users: set[int] | None = None):
         self.api, self.audio = api, audio
         self.manager_factory = manager_factory
@@ -51,6 +64,7 @@ class TelegramBot:
         self.last_update_id = -1
 
     def process_update(self, update: dict):
+        """Обработать новое сообщение; повторная доставка не повторяет действие."""
         update_id = update.get("update_id")
         if not isinstance(update_id, int) or update_id <= self.last_update_id:
             return
@@ -70,12 +84,16 @@ class TelegramBot:
             self.api.send_text(chat_id, f"Ваш Telegram ID: {user_id}")
             return
         if self.allowed_users and user_id not in self.allowed_users:
-            self.api.send_text(chat_id, "Доступ к этому демо ограничен. Ваш Telegram ID: " + str(user_id))
+            self.api.send_text(
+                chat_id, "Доступ к этому демо ограничен. Ваш Telegram ID: " + str(user_id)
+            )
             return
         now = time.monotonic()
-        self.sessions = {key: s for key, s in self.sessions.items() if now - s.last_used < 3600}
+        self.sessions = {
+            key: s for key, s in self.sessions.items() if now - s.last_used < SESSION_TTL_SECONDS
+        }
         if chat_id not in self.sessions:
-            if len(self.sessions) >= 64:
+            if len(self.sessions) >= MAX_CHAT_SESSIONS:
                 self.api.send_text(chat_id, "Демо занято. Попробуйте позже.")
                 return
             self.sessions[chat_id] = ChatSession(self.manager_factory())
@@ -94,10 +112,14 @@ class TelegramBot:
         if command in {"/voice_on", "/voice_off", "/trace_on", "/trace_off"}:
             if command.startswith("/voice"):
                 session.voice = command == "/voice_on"
-                self.api.send_text(chat_id, "Озвучивание включено." if session.voice else "Буду отвечать текстом.")
+                self.api.send_text(
+                    chat_id, "Озвучивание включено." if session.voice else "Буду отвечать текстом."
+                )
             else:
                 session.trace = command == "/trace_on"
-                self.api.send_text(chat_id, "Трассировка включена." if session.trace else "Трассировка выключена.")
+                self.api.send_text(
+                    chat_id, "Трассировка включена." if session.trace else "Трассировка выключена."
+                )
             return
         if command.startswith("/"):
             self.api.send_text(chat_id, "Список команд: /help")
@@ -106,15 +128,21 @@ class TelegramBot:
         stt_ms = 0
         voice = message.get("voice")
         if voice:
-            if voice.get("duration", 0) > 60 or voice.get("file_size", 0) > MAX_AUDIO_BYTES:
+            if (
+                voice.get("duration", 0) > MAX_VOICE_SECONDS
+                or voice.get("file_size", 0) > MAX_AUDIO_BYTES
+            ):
                 session.manager.state.pending = None
                 self.api.send_text(chat_id, "Запишите сообщение до 60 секунд и 10 МБ.")
                 return
             try:
                 content = self.api.download_voice(voice["file_id"])
                 expected = session.manager.state.expected_slot
-                text = (self.audio.transcribe(content, expected_slot=expected) if expected in {"phone", "iin"}
-                        else self.audio.transcribe(content))
+                text = (
+                    self.audio.transcribe(content, expected_slot=expected)
+                    if expected in {"phone", "iin"}
+                    else self.audio.transcribe(content)
+                )
             except (AudioError, ValueError) as exc:
                 session.manager.state.pending = None
                 self.api.send_text(chat_id, str(exc))
@@ -122,9 +150,11 @@ class TelegramBot:
             stt_ms = round((time.perf_counter() - started) * 1000)
             self.api.send_text(chat_id, "Распознано / Танылған мәтін: " + mask_private(text))
         elif not text:
-            self.api.send_text(chat_id, "Отправьте текст или голосовое сообщение через микрофон Telegram.")
+            self.api.send_text(
+                chat_id, "Отправьте текст или голосовое сообщение через микрофон Telegram."
+            )
             return
-        if len(text) > 4000:
+        if len(text) > MAX_UTTERANCE_CHARS:
             session.manager.state.pending = None
             self.api.send_text(chat_id, "Напишите короче: до 4000 символов.")
             return
@@ -145,14 +175,19 @@ class TelegramBot:
                 self.api.send_voice(chat_id, speech)
             except AudioError as exc:
                 self.api.send_text(chat_id, str(exc))
-        result.trace["latency_ms"] = {"stt": stt_ms, "dialog": dialog_ms, "tts": tts_ms,
-                                      "total_processing": round((time.perf_counter() - started) * 1000)}
+        result.trace["latency_ms"] = {
+            "stt": stt_ms,
+            "dialog": dialog_ms,
+            "tts": tts_ms,
+            "total_processing": round((time.perf_counter() - started) * 1000),
+        }
         if session.trace:
             self.api.send_trace(chat_id, result.trace)
         LOGGER.info("Обработана реплика: %s мс", result.trace["latency_ms"]["total_processing"])
 
 
 def save_offset(path: Path, offset: int):
+    """Атомарно сохранить номер обновления, чтобы не обработать его повторно."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps({"offset": offset}), encoding="utf-8")
@@ -160,6 +195,7 @@ def save_offset(path: Path, offset: int):
 
 
 def main() -> int:
+    """Загрузить настройки и получать сообщения до остановки процесса."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     # Сторонние HTTP-логи могут содержать текст запросов; оставляем только ошибки.
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -167,35 +203,65 @@ def main() -> int:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     key = os.getenv("OPENAI_API_KEY", "").strip()
     if not token or not key:
-        print("Заполните TELEGRAM_BOT_TOKEN и OPENAI_API_KEY в .env в корне проекта.", file=sys.stderr)
+        print(
+            "Заполните TELEGRAM_BOT_TOKEN и OPENAI_API_KEY в .env в корне проекта.", file=sys.stderr
+        )
         return 1
     try:
-        allowed = {int(value.strip()) for value in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",") if value.strip()}
+        allowed = {
+            int(value.strip())
+            for value in os.getenv("TELEGRAM_ALLOWED_USER_IDS", "").split(",")
+            if value.strip()
+        }
         if any(user_id <= 0 for user_id in allowed):
-            raise ValueError("TELEGRAM_ALLOWED_USER_IDS: нужны положительные числовые ID через запятую.")
+            raise ValueError(
+                "TELEGRAM_ALLOWED_USER_IDS: нужны положительные числовые ID через запятую."
+            )
         api = TelegramAPI(token)
         identity = api.call("getMe")
         if api.call("getWebhookInfo").get("url"):
-            print("У бота уже настроен webhook. Используйте отдельного бота для этого демо.", file=sys.stderr)
+            print(
+                "У бота уже настроен webhook. Используйте отдельного бота для этого демо.",
+                file=sys.stderr,
+            )
             return 1
         path = PROJECT_ROOT / ".runtime" / f"telegram-{identity['id']}.json"
         offset = json.loads(path.read_text(encoding="utf-8"))["offset"] if path.exists() else 0
         if type(offset) is not int or offset < 0:
             raise ValueError("Некорректный offset в .runtime.")
         catalog = Catalog()
-        with OpenAI(api_key=key, timeout=30, max_retries=2) as client:
+        with OpenAI(
+            api_key=key, timeout=API_TIMEOUT_SECONDS, max_retries=API_MAX_RETRIES
+        ) as client:
             llm = DialogLLM(client, catalog)
-            bot = TelegramBot(api, AudioService(client), lambda: DialogManager(llm, catalog), allowed)
+            bot = TelegramBot(
+                api, AudioService(client), lambda: DialogManager(llm, catalog), allowed
+            )
             bot.last_update_id = offset - 1
-            print(f"Бот @{identity['username']} запущен. Откройте его в Telegram и нажмите Start. Ctrl+C — остановить.", flush=True)
+            print(
+                f"Бот @{identity['username']} запущен. Откройте его в Telegram и нажмите Start. Ctrl+C — остановить.",
+                flush=True,
+            )
             while True:
                 try:
-                    updates = api.call("getUpdates", {"offset": offset, "timeout": 25, "allowed_updates": ["message"]})
+                    updates = api.call(
+                        "getUpdates",
+                        {
+                            "offset": offset,
+                            "timeout": TELEGRAM_POLL_SECONDS,
+                            "allowed_updates": ["message"],
+                        },
+                    )
                 except TelegramError as exc:
                     if exc.code in {401, 403, 404, 409}:
-                        print(f"{exc}. Проверьте токен и остановите второй экземпляр бота.", file=sys.stderr)
+                        print(
+                            f"{exc}. Проверьте токен и остановите второй экземпляр бота.",
+                            file=sys.stderr,
+                        )
                         return 1
-                    LOGGER.warning("%s; повтор получения сообщений через %s с", exc, exc.retry_after)
+                    LOGGER.warning(
+                        "%s; повтор получения сообщений через %s с", exc, exc.retry_after
+                    )
                     time.sleep(exc.retry_after)
                     continue
                 for update in updates:
@@ -217,7 +283,10 @@ def main() -> int:
                         if chat_id in bot.sessions:
                             bot.sessions[chat_id].manager.state.pending = None
                             try:
-                                api.send_text(chat_id, "Не удалось обработать сообщение. Повторите его или начните /reset.")
+                                api.send_text(
+                                    chat_id,
+                                    "Не удалось обработать сообщение. Повторите его или начните /reset.",
+                                )
                             except TelegramError:
                                 pass
     except (OSError, ValueError, KeyError, TelegramError) as exc:

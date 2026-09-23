@@ -1,49 +1,106 @@
 """Управление вопросами, очередью намерений и подтверждением действий."""
 
-from copy import deepcopy
 import logging
 import re
 import time
+from copy import deepcopy
 
 from src.agent.catalog import Catalog, mask_private
 from src.agent.llm import ModelError
 from src.agent.numbers import identifier_digits
 from src.agent.state import DialogState, PendingAction, Task, TurnResult
+from src.config import MAX_UTTERANCE_CHARS
 from src.tools.backend import BackendError, MockBackend
 
-
 PLANS = {
-    "SC01": "calc_ogpo_price", "SC03": "calc_casco_price",
-    "SC07": "calc_property_price", "SC08": "calc_accident_price", "SC09": "kb_lookup",
-    "SC10": "transfer_to_operator", "SC11": "transfer_to_operator",
-    "SC13": "create_claim", "SC14": "create_claim", "SC15": "transfer_to_operator",
-    "SC16": "create_claim", "SC17": "get_claim", "SC18": "kb_lookup",
-    "SC19": "create_dispute", "SC20": "book_inspection", "SC21": "book_appointment",
-    "SC22": "check_coverage", "SC23": "list_clinics", "SC24": "kb_lookup",
-    "SC25": "get_policy", "SC26": "resend_documents", "SC29": "update_contact",
-    "SC30": "check_payment", "SC31": "kb_lookup", "SC32": "get_bm_class",
-    "SC33": "get_offices", "SC34": "kb_lookup", "SC35": "create_complaint",
-    "SC36": "create_callback", "SC37": "transfer_to_operator", "SC38": "report_fraud",
-    "SC39": "request_document", "SC40": "kb_lookup",
+    "SC01": "calc_ogpo_price",
+    "SC03": "calc_casco_price",
+    "SC07": "calc_property_price",
+    "SC08": "calc_accident_price",
+    "SC09": "kb_lookup",
+    "SC10": "transfer_to_operator",
+    "SC11": "transfer_to_operator",
+    "SC13": "create_claim",
+    "SC14": "create_claim",
+    "SC15": "transfer_to_operator",
+    "SC16": "create_claim",
+    "SC17": "get_claim",
+    "SC18": "kb_lookup",
+    "SC19": "create_dispute",
+    "SC20": "book_inspection",
+    "SC21": "book_appointment",
+    "SC22": "check_coverage",
+    "SC23": "list_clinics",
+    "SC24": "kb_lookup",
+    "SC25": "get_policy",
+    "SC26": "resend_documents",
+    "SC29": "update_contact",
+    "SC30": "check_payment",
+    "SC31": "kb_lookup",
+    "SC32": "get_bm_class",
+    "SC33": "get_offices",
+    "SC34": "kb_lookup",
+    "SC35": "create_complaint",
+    "SC36": "create_callback",
+    "SC37": "transfer_to_operator",
+    "SC38": "report_fraud",
+    "SC39": "request_document",
+    "SC40": "kb_lookup",
 }
-PRODUCTS = {"SC13": "casco", "SC14": "property", "SC15": "travel", "SC16": "accident",
-            "SC21": "dms", "SC22": "dms", "SC24": "dms"}
-YES = {"да", "подтверждаю", "да подтверждаю", "согласен", "согласна", "верно", "иә", "ия", "растаймын", "иә растаймын"}
+PRODUCTS = {
+    "SC13": "casco",
+    "SC14": "property",
+    "SC15": "travel",
+    "SC16": "accident",
+    "SC21": "dms",
+    "SC22": "dms",
+    "SC24": "dms",
+}
+YES = {
+    "да",
+    "подтверждаю",
+    "да подтверждаю",
+    "согласен",
+    "согласна",
+    "верно",
+    "иә",
+    "ия",
+    "растаймын",
+    "иә растаймын",
+}
 NO = {"нет", "не надо", "отмена", "отмените", "жоқ", "бас тартамын"}
 GREETINGS = {
-    "здравствуйте": "ru", "здравствуй": "ru", "привет": "ru", "добрый день": "ru",
-    "доброе утро": "ru", "добрый вечер": "ru", "алло": "ru",
-    "сәлем": "kk", "сәлеметсіз бе": "kk", "салем": "kk", "салеметсиз бе": "kk",
-    "қайырлы күн": "kk", "қайырлы таң": "kk", "қайырлы кеш": "kk",
+    "здравствуйте": "ru",
+    "здравствуй": "ru",
+    "привет": "ru",
+    "добрый день": "ru",
+    "доброе утро": "ru",
+    "добрый вечер": "ru",
+    "алло": "ru",
+    "сәлем": "kk",
+    "сәлеметсіз бе": "kk",
+    "салем": "kk",
+    "салеметсиз бе": "kk",
+    "қайырлы күн": "kk",
+    "қайырлы таң": "kk",
+    "қайырлы кеш": "kk",
 }
 OPERATOR_ACKS = {
-    "да подключайся": "ru", "да подключайте": "ru", "подключайте": "ru",
-    "да соединяйте": "ru", "соединяйте": "ru", "жду оператора": "ru",
-    "иә қосыңыз": "kk", "қосыңыз": "kk", "операторды күтемін": "kk",
+    "да подключайся": "ru",
+    "да подключайте": "ru",
+    "подключайте": "ru",
+    "да соединяйте": "ru",
+    "соединяйте": "ru",
+    "жду оператора": "ru",
+    "иә қосыңыз": "kk",
+    "қосыңыз": "kk",
+    "операторды күтемін": "kk",
 }
 
 
 class DialogManager:
+    """Ведёт один разговор и выполняет действия после проверок и подтверждения."""
+
     def __init__(self, llm, catalog: Catalog | None = None, backend: MockBackend | None = None):
         self.catalog = catalog or Catalog()
         self.backend = backend or MockBackend(self.catalog)
@@ -57,6 +114,7 @@ class DialogManager:
         return kk if self.state.language == "kk" else ru
 
     def handle(self, text: str) -> TurnResult:
+        """Обработать реплику и вернуть ответ с обезличенной трассировкой."""
         started = time.perf_counter()
         self._actions, self._routed = [], []
         self._event = None
@@ -65,32 +123,42 @@ class DialogManager:
             reply = self._handle(text.strip())
         except ModelError as exc:
             logging.getLogger(__name__).warning("Ошибка диалоговой модели: %s", exc)
-            reply = self.say("Не удалось разобрать ответ. Повторите, пожалуйста.",
-                             "Жауапты түсіне алмадым. Қайталап айтыңызшы.")
+            reply = self.say(
+                "Не удалось разобрать ответ. Повторите, пожалуйста.",
+                "Жауапты түсіне алмадым. Қайталап айтыңызшы.",
+            )
         except BackendError as exc:
             reply = self._backend_error(exc)
         reply = mask_private(reply)
         self.state.remember(text, reply)
         active = self.state.active
-        trace = mask_private({
-            "turn": self.state.turn, "transcript": text, "language": self.state.language,
-            "event": self._event,
-            "scenarios": self._routed or ([active.scenario_id] if active else []),
-            "active_scenario": active.scenario_id if active else None,
-            "client_id": self.state.client_id,
-            "slots": active.slots if active else {}, "expected_slot": self.state.expected_slot,
-            "awaiting_confirmation": self.state.pending is not None,
-            "awaiting_resume": self.state.awaiting_resume,
-            "operator_handoff": self.state.operator_handoff,
-            "queued": [t.scenario_id for t in self.state.queue],
-            "suspended": [t.scenario_id for t in self.state.suspended],
-            "actions": self._actions, "latency_ms": {"total": round((time.perf_counter() - started) * 1000)},
-        })
+        trace = mask_private(
+            {
+                "turn": self.state.turn,
+                "transcript": text,
+                "language": self.state.language,
+                "event": self._event,
+                "scenarios": self._routed or ([active.scenario_id] if active else []),
+                "active_scenario": active.scenario_id if active else None,
+                "client_id": self.state.client_id,
+                "slots": active.slots if active else {},
+                "expected_slot": self.state.expected_slot,
+                "awaiting_confirmation": self.state.pending is not None,
+                "awaiting_resume": self.state.awaiting_resume,
+                "operator_handoff": self.state.operator_handoff,
+                "queued": [t.scenario_id for t in self.state.queue],
+                "suspended": [t.scenario_id for t in self.state.suspended],
+                "actions": self._actions,
+                "latency_ms": {"total": round((time.perf_counter() - started) * 1000)},
+            }
+        )
         return TurnResult(reply, trace)
 
     def _handle(self, text: str) -> str:
-        if not text or len(text) > 4000:
-            return self.say("Напишите коротко, чем помочь.", "Қалай көмектесе аламын? Қысқаша жазыңызшы.")
+        if not text or len(text) > MAX_UTTERANCE_CHARS:
+            return self.say(
+                "Напишите коротко, чем помочь.", "Қалай көмектесе аламын? Қысқаша жазыңызшы."
+            )
         answer = re.sub(r"[^\w\s]", "", text.casefold()).strip()
         answer = " ".join(answer.split())
         # Только отдельное приветствие: «Здравствуйте, проверьте полис» идёт в LLM.
@@ -101,12 +169,18 @@ class DialogManager:
             if self.state.operator_handoff:
                 return reply + " " + self._handoff_status()
             if self.state.pending:
-                return reply + " " + self._confirmation_text(self.state.pending.name, self.state.pending.preview)
+                return (
+                    reply
+                    + " "
+                    + self._confirmation_text(self.state.pending.name, self.state.pending.preview)
+                )
             if self.state.expected_slot:
                 return reply + " " + self._ask(self.state.expected_slot)
             if not self.state.active and (self.state.queue or self.state.suspended):
                 self.state.awaiting_resume = True
-                return reply + self.say(" Вернёмся к оставшемуся вопросу?", " Қалған сұраққа оралайық па?")
+                return reply + self.say(
+                    " Вернёмся к оставшемуся вопросу?", " Қалған сұраққа оралайық па?"
+                )
             return reply + self.say(" Чем помочь?", " Қалай көмектесе аламын?")
         if answer in {"иә", "ия", "растаймын", "иә растаймын", "жоқ", "бас тартамын"}:
             self.state.language = "kk"
@@ -122,11 +196,16 @@ class DialogManager:
             result = self._call(pending.name, pending.arguments, confirmed=True)
             return self._complete(self._result_text(pending.name, result))
         # «Нет» на вопрос о пострадавших — значение поля, а не отмена диалога.
-        if answer in NO and (self.state.pending or not self.state.active
-                             or answer in {"не надо", "отмена", "отмените", "бас тартамын"}):
+        if answer in NO and (
+            self.state.pending
+            or not self.state.active
+            or answer in {"не надо", "отмена", "отмените", "бас тартамын"}
+        ):
             self.state.pending = None
             if self.state.active:
-                return self._complete(self.say("Хорошо, этот запрос отменён.", "Жақсы, бұл сұрау тоқтатылды."))
+                return self._complete(
+                    self.say("Хорошо, этот запрос отменён.", "Жақсы, бұл сұрау тоқтатылды.")
+                )
             self.state.queue.clear()
             self.state.suspended.clear()
             self.state.awaiting_resume = False
@@ -158,7 +237,9 @@ class DialogManager:
         if understood.mode == "cancel":
             return self._complete(self.say("Запрос отменён.", "Сұрау тоқтатылды."))
         if understood.mode == "resume" and (self.state.queue or self.state.suspended):
-            if self.state.operator_handoff and not re.search(r"верн|возобнов|продолж|орала|жалғастыр", answer):
+            if self.state.operator_handoff and not re.search(
+                r"верн|возобнов|продолж|орала|жалғастыр", answer
+            ):
                 return self._handoff_status()
             return self._resume()
 
@@ -205,8 +286,10 @@ class DialogManager:
                 self.state.unclear_count += 1
                 if self.state.unclear_count >= 2:
                     return self._handoff("operator_general", "Две неясные реплики подряд")
-                return self.say("Что нужно: узнать условия, проверить полис или сообщить о страховом случае?",
-                                "Шарттарды білу, полисті тексеру немесе сақтандыру оқиғасын хабарлау керек пе?")
+                return self.say(
+                    "Что нужно: узнать условия, проверить полис или сообщить о страховом случае?",
+                    "Шарттарды білу, полисті тексеру немесе сақтандыру оқиғасын хабарлау керек пе?",
+                )
             else:
                 self.state.unclear_count = 0
             return self.catalog.system[sid]["response"][self.state.language]
@@ -234,19 +317,33 @@ class DialogManager:
                 "Не удалось получить полный номер. Напишите его текстом: +7 и ещё 10 цифр "
                 "или 10 цифр без кода страны; учебные номера доступны в /demo.",
                 "Толық нөмірді ала алмадым. Мәтінмен жазыңыз: +7 және тағы 10 цифр "
-                "немесе ел кодынсыз 10 цифр; оқу нөмірлері /demo командасында.")
+                "немесе ел кодынсыз 10 цифр; оқу нөмірлері /demo командасында.",
+            )
         question = self.catalog.slots[field]["prompt"][self.state.language]
-        prefix = self.say("Проверьте формат данных. ", "Деректердің пішімін тексеріңізші. ") if invalid else ""
+        prefix = (
+            self.say("Проверьте формат данных. ", "Деректердің пішімін тексеріңізші. ")
+            if invalid
+            else ""
+        )
         return prefix + question
 
     def _call(self, name: str, arguments: dict, *, confirmed=False, preview=False) -> dict:
         try:
-            result = (self.backend.preview(name, arguments, self.state.client_id) if preview else
-                      self.backend.execute(name, arguments, self.state.client_id, confirmed=confirmed))
+            result = (
+                self.backend.preview(name, arguments, self.state.client_id)
+                if preview
+                else self.backend.execute(
+                    name, arguments, self.state.client_id, confirmed=confirmed
+                )
+            )
         except BackendError as exc:
-            self._actions.append({"name": name, "mode": "preview" if preview else "execute", **exc.as_dict()})
+            self._actions.append(
+                {"name": name, "mode": "preview" if preview else "execute", **exc.as_dict()}
+            )
             raise
-        self._actions.append({"name": name, "mode": "preview" if preview else "execute", "result": result})
+        self._actions.append(
+            {"name": name, "mode": "preview" if preview else "execute", "result": result}
+        )
         return result
 
     def _identify(self) -> str | None:
@@ -269,7 +366,9 @@ class DialogManager:
         scenario = self.catalog.scenarios[sid]
         action = PLANS.get(sid)
         if action is None:
-            return self._handoff("operator_general", "Операция пока доступна через оператора", unsupported=True)
+            return self._handoff(
+                "operator_general", "Операция пока доступна через оператора", unsupported=True
+            )
         if scenario["requires_identification"]:
             question = self._identify()
             if question:
@@ -286,7 +385,9 @@ class DialogManager:
         if "policy_number" in required:
             product = PRODUCTS.get(sid) or task.slots.get("product_type")
             if not task.slots.get("policy_number"):
-                policies = self._call("get_policies", {"client_id": self.state.client_id})["policies"]
+                policies = self._call("get_policies", {"client_id": self.state.client_id})[
+                    "policies"
+                ]
                 choices = [p for p in policies if not product or p["product"] == product]
                 if len(choices) == 1:
                     task.slots["policy_number"] = choices[0]["policy_number"]
@@ -295,13 +396,19 @@ class DialogManager:
                 else:
                     self.state.expected_slot = "policy_number"
                     items = ", ".join(p["policy_number"] for p in choices)
-                    return self.say(f"Найдено несколько полисов: {items}. Какой нужен?",
-                                    f"Бірнеше полис табылды: {items}. Қайсысы керек?")
+                    return self.say(
+                        f"Найдено несколько полисов: {items}. Какой нужен?",
+                        f"Бірнеше полис табылды: {items}. Қайсысы керек?",
+                    )
             policy = self.backend.policy(task.slots["policy_number"], self.state.client_id)
             if product and policy["product"] != product:
                 raise BackendError("invalid_input", "Нужен другой тип полиса.", "policy_number")
             task.slots["product_type"] = policy["product"]
-        if "claim_number" in required and not task.slots.get("claim_number") and self.state.client_id:
+        if (
+            "claim_number" in required
+            and not task.slots.get("claim_number")
+            and self.state.client_id
+        ):
             claims = self.backend.claims(self.state.client_id)
             if len(claims) == 1:
                 task.slots["claim_number"] = claims[0]["claim_number"]
@@ -310,8 +417,13 @@ class DialogManager:
                 question = self._ask(key)
                 if sid == "SC11" and not task.attempts.get("urgency_advised"):
                     task.attempts["urgency_advised"] = 1
-                    question = self.say("Если есть пострадавшие, сначала звоните 112. ",
-                                        "Зардап шеккендер болса, алдымен 112-ге қоңырау шалыңыз. ") + question
+                    question = (
+                        self.say(
+                            "Если есть пострадавшие, сначала звоните 112. ",
+                            "Зардап шеккендер болса, алдымен 112-ге қоңырау шалыңыз. ",
+                        )
+                        + question
+                    )
                 return question
         self.state.expected_slot = None
         arguments = deepcopy(task.slots)
@@ -329,14 +441,24 @@ class DialogManager:
         reply = self._result_text(action, result)
         if action == "transfer_to_operator":
             return self._finish_handoff(reply)
-        if sid == "SC30" and any(p["status"] == "charged_policy_not_issued" for p in result["payments"]):
-            self._call("transfer_to_operator", {"queue": "operator_general", "summary": self._summary()})
-            reply += self.say(" Запрос передан оператору в демо.", " Сұрау демода операторға жіберілді.")
+        if sid == "SC30" and any(
+            p["status"] == "charged_policy_not_issued" for p in result["payments"]
+        ):
+            self._call(
+                "transfer_to_operator", {"queue": "operator_general", "summary": self._summary()}
+            )
+            reply += self.say(
+                " Запрос передан оператору в демо.", " Сұрау демода операторға жіберілді."
+            )
             return self._finish_handoff(reply)
         if sid == "SC38":
-            self._call("transfer_to_operator", {"queue": "security_team", "summary": self._summary()})
-            reply = self.say("Обращение зарегистрировано и передано службе безопасности в демо. Не сообщайте SMS-коды, CVV и PIN.",
-                             "Өтініш тіркеліп, демода қауіпсіздік қызметіне жіберілді. SMS кодын, CVV және PIN кодын айтпаңыз.")
+            self._call(
+                "transfer_to_operator", {"queue": "security_team", "summary": self._summary()}
+            )
+            reply = self.say(
+                "Обращение зарегистрировано и передано службе безопасности в демо. Не сообщайте SMS-коды, CVV и PIN.",
+                "Өтініш тіркеліп, демода қауіпсіздік қызметіне жіберілді. SMS кодын, CVV және PIN кодын айтпаңыз.",
+            )
             return self._finish_handoff(reply)
         return self._complete(reply)
 
@@ -344,57 +466,97 @@ class DialogManager:
         question = self.say("Подтверждаете?", "Растайсыз ба?")
         if action in {"book_appointment", "book_inspection"}:
             place = result.get("clinic_name", result["address"])
-            specialties = {"therapist": ("терапевт", "терапевт"), "ENT": ("ЛОР", "ЛОР"),
-                           "dentist": ("стоматолог", "тіс дәрігері"), "gynecologist": ("гинеколог", "гинеколог"),
-                           "cardiologist": ("кардиолог", "кардиолог"), "pediatrician": ("педиатр", "педиатр"),
-                           "lab": ("анализы", "талдаулар"), "ultrasound": ("УЗИ", "УДЗ")}
-            specialty = self.say(*specialties.get(result.get("doctor_specialty"), ("осмотр", "тексеру")))
-            text = self.say(f"Запись: {specialty}, {place}, {result['slot_datetime']}.",
-                            f"Жазылу: {specialty}, {place}, {result['slot_datetime']}.")
+            specialties = {
+                "therapist": ("терапевт", "терапевт"),
+                "ENT": ("ЛОР", "ЛОР"),
+                "dentist": ("стоматолог", "тіс дәрігері"),
+                "gynecologist": ("гинеколог", "гинеколог"),
+                "cardiologist": ("кардиолог", "кардиолог"),
+                "pediatrician": ("педиатр", "педиатр"),
+                "lab": ("анализы", "талдаулар"),
+                "ultrasound": ("УЗИ", "УДЗ"),
+            }
+            specialty = self.say(
+                *specialties.get(result.get("doctor_specialty"), ("осмотр", "тексеру"))
+            )
+            text = self.say(
+                f"Запись: {specialty}, {place}, {result['slot_datetime']}.",
+                f"Жазылу: {specialty}, {place}, {result['slot_datetime']}.",
+            )
         elif action == "update_contact":
-            labels = {"phone": ("телефон", "телефон"), "email": ("почту", "пошта"), "address": ("адрес", "мекенжай")}
+            labels = {
+                "phone": ("телефон", "телефон"),
+                "email": ("почту", "пошта"),
+                "address": ("адрес", "мекенжай"),
+            }
             field = self.say(*labels[result["contact_field"]])
-            text = self.say(f"Изменить {field} на {mask_private(result['new_value'])}.",
-                            f"{field}: {mask_private(result['new_value'])} деп өзгертемін.")
+            text = self.say(
+                f"Изменить {field} на {mask_private(result['new_value'])}.",
+                f"{field}: {mask_private(result['new_value'])} деп өзгертемін.",
+            )
         elif action == "create_claim":
-            text = self.say(f"Зарегистрировать событие от {result['incident_date']} по полису {result['policy_number']}: {result['incident_description']}",
-                            f"{result['policy_number']} полисі бойынша {result['incident_date']} күнгі оқиғаны тіркеймін: {result['incident_description']}")
+            text = self.say(
+                f"Зарегистрировать событие от {result['incident_date']} по полису {result['policy_number']}: {result['incident_description']}",
+                f"{result['policy_number']} полисі бойынша {result['incident_date']} күнгі оқиғаны тіркеймін: {result['incident_description']}",
+            )
         else:
-            text = self.say(f"Зарегистрировать несогласие по заявлению {result['claim_number']}: {result['complaint_text']}",
-                            f"{result['claim_number']} өтініші бойынша келіспеушілікті тіркеймін: {result['complaint_text']}")
+            text = self.say(
+                f"Зарегистрировать несогласие по заявлению {result['claim_number']}: {result['complaint_text']}",
+                f"{result['claim_number']} өтініші бойынша келіспеушілікті тіркеймін: {result['complaint_text']}",
+            )
         return text + " " + question
 
     def _result_text(self, action: str, result: dict) -> str:
         if action == "get_policy":
-            statuses = {"active": ("действует", "жарамды"), "expired": ("истёк", "мерзімі өткен"),
-                        "not_started": ("ещё не вступил в силу", "әлі күшіне енген жоқ")}
+            statuses = {
+                "active": ("действует", "жарамды"),
+                "expired": ("истёк", "мерзімі өткен"),
+                "not_started": ("ещё не вступил в силу", "әлі күшіне енген жоқ"),
+            }
             status = self.say(*statuses[result["status"]])
-            return self.say(f"Полис {result['policy_number']} {status}. Срок: {result['start_date']} — {result['end_date']}.",
-                            f"{result['policy_number']} полисі {status}. Мерзімі: {result['start_date']} — {result['end_date']}.")
+            return self.say(
+                f"Полис {result['policy_number']} {status}. Срок: {result['start_date']} — {result['end_date']}.",
+                f"{result['policy_number']} полисі {status}. Мерзімі: {result['start_date']} — {result['end_date']}.",
+            )
         if action.startswith("calc_"):
-            return self.say(f"Стоимость на {result['term_months']} месяцев — {result['price']} тенге.",
-                            f"{result['term_months']} айға бағасы — {result['price']} теңге.")
+            return self.say(
+                f"Стоимость на {result['term_months']} месяцев — {result['price']} тенге.",
+                f"{result['term_months']} айға бағасы — {result['price']} теңге.",
+            )
         if action in {"book_appointment", "book_inspection"}:
             place = result.get("clinic_name", result["address"])
-            return self.say(f"Запись создана в демо: {place}, {result['slot_datetime']}.",
-                            f"Демода жазылу жасалды: {place}, {result['slot_datetime']}.")
+            return self.say(
+                f"Запись создана в демо: {place}, {result['slot_datetime']}.",
+                f"Демода жазылу жасалды: {place}, {result['slot_datetime']}.",
+            )
         if action == "update_contact":
-            return self.say("Контактные данные обновлены в демо.", "Демода байланыс деректері жаңартылды.")
+            return self.say(
+                "Контактные данные обновлены в демо.", "Демода байланыс деректері жаңартылды."
+            )
         if action == "create_claim":
-            return self.say(f"Заявление {result['claim_number']} зарегистрировано в демо.",
-                            f"{result['claim_number']} өтініші демода тіркелді.")
+            return self.say(
+                f"Заявление {result['claim_number']} зарегистрировано в демо.",
+                f"{result['claim_number']} өтініші демода тіркелді.",
+            )
         if action == "transfer_to_operator":
-            return self.say("Запрос и контекст переданы оператору в демо.", "Сұрау мен сөйлесу мәнмәтіні демода операторға жіберілді.")
+            return self.say(
+                "Запрос и контекст переданы оператору в демо.",
+                "Сұрау мен сөйлесу мәнмәтіні демода операторға жіберілді.",
+            )
         if action in {"resend_documents", "request_document"}:
-            return self.say(f"Отправка документов на {mask_private(result['sent_to'])} отмечена в демо.",
-                            f"Демода құжаттар {mask_private(result['sent_to'])} мекенжайына жіберілді деп белгіленді.")
+            return self.say(
+                f"Отправка документов на {mask_private(result['sent_to'])} отмечена в демо.",
+                f"Демода құжаттар {mask_private(result['sent_to'])} мекенжайына жіберілді деп белгіленді.",
+            )
         if action in {"create_complaint", "create_dispute", "create_callback", "report_fraud"}:
             return self.say("Обращение зарегистрировано в демо.", "Өтініш демода тіркелді.")
         try:
             return self.llm.respond(self.state.language, f"Сообщить результат {action}", result)
         except ModelError:
-            return self.say("Данные получены, но не удалось сформулировать ответ. Повторите запрос, пожалуйста.",
-                            "Деректер алынды, бірақ жауапты құрастыру мүмкін болмады. Сұрауды қайталаңызшы.")
+            return self.say(
+                "Данные получены, но не удалось сформулировать ответ. Повторите запрос, пожалуйста.",
+                "Деректер алынды, бірақ жауапты құрастыру мүмкін болмады. Сұрауды қайталаңызшы.",
+            )
 
     def _complete(self, reply: str, *, offer_resume=True) -> str:
         self.state.active = None
@@ -414,7 +576,10 @@ class DialogManager:
         elif self.state.suspended:
             next_task = self.state.suspended.pop()
         else:
-            return self.say("Отложенных вопросов нет. Чем помочь?", "Кейінге қалдырылған сұрақ жоқ. Қалай көмектесейін?")
+            return self.say(
+                "Отложенных вопросов нет. Чем помочь?",
+                "Кейінге қалдырылған сұрақ жоқ. Қалай көмектесейін?",
+            )
         if self.state.active:
             self.state.suspended.append(self.state.active)
         self.state.active = next_task
@@ -423,38 +588,65 @@ class DialogManager:
         return self._advance()
 
     def _summary(self) -> dict:
-        return {"client_id": self.state.client_id,
-                "scenario": self.state.active.scenario_id if self.state.active else None,
-                "slots": deepcopy(self.state.active.slots) if self.state.active else {},
-                "history": deepcopy(self.state.history[-4:])}
+        return {
+            "client_id": self.state.client_id,
+            "scenario": self.state.active.scenario_id if self.state.active else None,
+            "slots": deepcopy(self.state.active.slots) if self.state.active else {},
+            "history": deepcopy(self.state.history[-4:]),
+        }
 
     def _handoff(self, queue: str, reason: str, *, unsupported=False) -> str:
-        self._call("transfer_to_operator", {"queue": queue, "summary": {**self._summary(), "reason": reason}})
+        self._call(
+            "transfer_to_operator",
+            {"queue": queue, "summary": {**self._summary(), "reason": reason}},
+        )
         self.state.unclear_count = 0
-        prefix = self.say("Эту операцию выполняет оператор. ", "Бұл әрекетті оператор орындайды. ") if unsupported else ""
-        return self._finish_handoff(prefix + self.say("Контекст передан оператору в демо.", "Мәнмәтін демода операторға жіберілді."))
+        prefix = (
+            self.say("Эту операцию выполняет оператор. ", "Бұл әрекетті оператор орындайды. ")
+            if unsupported
+            else ""
+        )
+        return self._finish_handoff(
+            prefix
+            + self.say(
+                "Контекст передан оператору в демо.", "Мәнмәтін демода операторға жіберілді."
+            )
+        )
 
     def _finish_handoff(self, reply: str) -> str:
         reply = self._complete(reply, offer_resume=False)
         self.state.operator_handoff = True
         self._event = "operator_handoff"
-        return reply + " " + self.say("Живой оператор в этом демо не подключается.",
-                                      "Бұл демода нақты оператор қосылмайды.")
+        return (
+            reply
+            + " "
+            + self.say(
+                "Живой оператор в этом демо не подключается.",
+                "Бұл демода нақты оператор қосылмайды.",
+            )
+        )
 
     def _handoff_status(self) -> str:
         self._event = "operator_handoff"
-        reply = self.say("Передача оператору здесь учебная: живой оператор не подключается.",
-                         "Операторға жіберу — оқу әрекеті: нақты оператор қосылмайды.")
+        reply = self.say(
+            "Передача оператору здесь учебная: живой оператор не подключается.",
+            "Операторға жіберу — оқу әрекеті: нақты оператор қосылмайды.",
+        )
         if self.state.queue or self.state.suspended:
-            reply += self.say(" Чтобы продолжить с ботом, скажите «вернёмся к предыдущему вопросу».",
-                              "Ботпен жалғастыру үшін «алдыңғы сұраққа оралайық» деңіз.")
+            reply += self.say(
+                " Чтобы продолжить с ботом, скажите «вернёмся к предыдущему вопросу».",
+                "Ботпен жалғастыру үшін «алдыңғы сұраққа оралайық» деңіз.",
+            )
         return reply
 
     def _backend_error(self, exc: BackendError) -> str:
         self.state.pending = None
         task = self.state.active
         if not task:
-            return self.say("Действие недоступно. Попробуйте другой запрос.", "Әрекет қолжетімсіз. Басқа сұрауды қолданып көріңіз.")
+            return self.say(
+                "Действие недоступно. Попробуйте другой запрос.",
+                "Әрекет қолжетімсіз. Басқа сұрауды қолданып көріңіз.",
+            )
         field = exc.field
         task.attempts[field or exc.code] = task.attempts.get(field or exc.code, 0) + 1
         if field in {"phone", "iin"} and not self.state.client_id:
@@ -462,10 +654,14 @@ class DialogManager:
             attempts = task.attempts.get("phone", 0) + task.attempts.get("iin", 0)
             if attempts >= 3:
                 return self._handoff("operator_general", "Не удалось идентифицировать клиента")
-            return self.say("Клиент не найден в учебной базе; список тестовых клиентов — /demo. ",
-                            "Клиент оқу базасынан табылмады; оқу клиенттері — /demo. ") + self._ask("iin" if attempts >= 2 else field)
+            return self.say(
+                "Клиент не найден в учебной базе; список тестовых клиентов — /demo. ",
+                "Клиент оқу базасынан табылмады; оқу клиенттері — /demo. ",
+            ) + self._ask("iin" if attempts >= 2 else field)
         if field in self.catalog.slots and task.attempts[field] <= 2:
             task.slots.pop(field, None)
-            prefix = self.say(exc.message + " ", "Деректер сәйкес келмейді немесе жазба табылмады. ")
+            prefix = self.say(
+                exc.message + " ", "Деректер сәйкес келмейді немесе жазба табылмады. "
+            )
             return prefix + self._ask(field)
         return self._handoff("operator_general", exc.message)

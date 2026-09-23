@@ -2,19 +2,20 @@
 
 import io
 import json
+import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-import unittest
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
+
+from test_dialog import FakeLLM
 
 from src.agent.dialog_manager import DialogManager
 from src.agent.state import PendingAction, Task
 from src.telegram_bot import TelegramBot, save_offset
 from src.tools.audio import AudioError, AudioService
 from src.tools.telegram_api import TelegramAPI, TelegramError
-from test_dialog import FakeLLM
 
 
 def update(number, *, user=1, text=None, voice=None, kind="private"):
@@ -133,7 +134,9 @@ class AudioTests(unittest.TestCase):
 
     def test_transcription_keeps_source_language_and_rejects_empty_text(self):
         client = MagicMock()
-        client.audio.transcriptions.create.return_value = SimpleNamespace(text="Сәлем!", segments=[])
+        client.audio.transcriptions.create.return_value = SimpleNamespace(
+            text="Сәлем!", segments=[]
+        )
         service = AudioService(client)
         self.assertEqual(service.transcribe(b"OggS speech"), "Сәлем!")
         args = client.audio.transcriptions.create.call_args.kwargs
@@ -157,13 +160,18 @@ class AudioTests(unittest.TestCase):
 class TelegramAPITests(unittest.TestCase):
     def test_network_errors_never_expose_token(self):
         token = "123456:SECRET_TOKEN"
-        with patch("src.tools.telegram_api.urlopen", side_effect=URLError("https://api.telegram.org/bot" + token)):
+        with patch(
+            "src.tools.telegram_api.urlopen",
+            side_effect=URLError("https://api.telegram.org/bot" + token),
+        ):
             with self.assertRaises(TelegramError) as error:
                 TelegramAPI(token).call("getMe")
         self.assertNotIn(token, str(error.exception))
 
     def test_send_voice_uploads_file_with_matching_type(self):
-        with patch("src.tools.telegram_api.urlopen", return_value=io.BytesIO(b'{"ok":true,"result":{}}')) as request:
+        with patch(
+            "src.tools.telegram_api.urlopen", return_value=io.BytesIO(b'{"ok":true,"result":{}}')
+        ) as request:
             TelegramAPI("123:FAKE").send_voice(1, b"ID3 audio")
         body = request.call_args.args[0].data
         self.assertIn(b'filename="reply.mp3"', body)

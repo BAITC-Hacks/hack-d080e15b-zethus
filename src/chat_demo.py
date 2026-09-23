@@ -4,8 +4,8 @@ import argparse
 import json
 import logging
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Поддерживаются и python src/chat_demo.py, и python -m src.chat_demo.
 if __package__ in {None, ""}:
@@ -17,13 +17,18 @@ from openai import OpenAI, OpenAIError
 from src.agent.catalog import Catalog, mask_private
 from src.agent.dialog_manager import DialogManager
 from src.agent.llm import DialogLLM
-from src.main_router import PROJECT_ROOT
+from src.config import API_MAX_RETRIES, API_TIMEOUT_SECONDS, PROJECT_ROOT
 
 
 def main(argv=None) -> int:
+    """Запустить интерактивный разговор или последовательность реплик из файла."""
     parser = argparse.ArgumentParser(description="Диалог с учебным ботом Saqta Insurance")
-    parser.add_argument("--trace", action="store_true", help="Показывать сценарии, слоты и действия после ответа")
-    parser.add_argument("--script", type=Path, help="Прогнать JSON-файл со списком реплик через настоящий API")
+    parser.add_argument(
+        "--trace", action="store_true", help="Показывать сценарии, слоты и действия после ответа"
+    )
+    parser.add_argument(
+        "--script", type=Path, help="Прогнать JSON-файл со списком реплик через настоящий API"
+    )
     options = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     try:
@@ -39,13 +44,22 @@ def main(argv=None) -> int:
                 turns = json.load(file)
             if not isinstance(turns, list) or any(not isinstance(text, str) for text in turns):
                 raise ValueError("Файл --script должен содержать JSON-список строк.")
-        with OpenAI(api_key=api_key, timeout=30.0, max_retries=2) as client:
+        with OpenAI(
+            api_key=api_key, timeout=API_TIMEOUT_SECONDS, max_retries=API_MAX_RETRIES
+        ) as client:
             llm = DialogLLM(client, catalog)
             manager = DialogManager(llm, catalog)
             print("Saqta Insurance — текстовая демонстрация.")
-            print(f"Учебная дата: {catalog.today}. Операции выполняются на учебных данных в памяти сеанса.")
-            print("Команды: /demo — учебные клиенты, /reset — новый сеанс, /state — состояние, /quit — выход.")
-            print("Бот: Здравствуйте! Чем помочь? / Сәлеметсіз бе! Қалай көмектесе аламын?", flush=True)
+            print(
+                f"Учебная дата: {catalog.today}. Операции выполняются на учебных данных в памяти сеанса."
+            )
+            print(
+                "Команды: /demo — учебные клиенты, /reset — новый сеанс, /state — состояние, /quit — выход."
+            )
+            print(
+                "Бот: Здравствуйте! Чем помочь? / Сәлеметсіз бе! Қалай көмектесе аламын?",
+                flush=True,
+            )
             iterator = iter(turns) if turns is not None else None
             while True:
                 if iterator is not None:
@@ -69,15 +83,29 @@ def main(argv=None) -> int:
                     continue
                 if text == "/state":
                     state = manager.state
-                    print(json.dumps(mask_private({
-                        "language": state.language, "client_id": state.client_id,
-                        "active_scenario": state.active.scenario_id if state.active else None,
-                        "slots": state.active.slots if state.active else {},
-                        "awaiting_confirmation": state.pending is not None,
-                        "operator_handoff": state.operator_handoff,
-                        "awaiting_resume": state.awaiting_resume,
-                        "completed_actions": [event["action"] for event in manager.backend.events],
-                    }), ensure_ascii=False, indent=2), flush=True)
+                    print(
+                        json.dumps(
+                            mask_private(
+                                {
+                                    "language": state.language,
+                                    "client_id": state.client_id,
+                                    "active_scenario": state.active.scenario_id
+                                    if state.active
+                                    else None,
+                                    "slots": state.active.slots if state.active else {},
+                                    "awaiting_confirmation": state.pending is not None,
+                                    "operator_handoff": state.operator_handoff,
+                                    "awaiting_resume": state.awaiting_resume,
+                                    "completed_actions": [
+                                        event["action"] for event in manager.backend.events
+                                    ],
+                                }
+                            ),
+                            ensure_ascii=False,
+                            indent=2,
+                        ),
+                        flush=True,
+                    )
                     continue
                 if text.startswith("/"):
                     print("Команды: /demo, /reset, /state, /quit.", flush=True)

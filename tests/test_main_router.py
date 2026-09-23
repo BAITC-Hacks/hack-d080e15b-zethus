@@ -1,24 +1,28 @@
 """Проверки маршрутизатора без сети, реального ключа и расходов на API."""
 
-from contextlib import redirect_stdout
 import io
 import json
 import os
-from pathlib import Path
 import shutil
 import tempfile
-from types import SimpleNamespace
 import unittest
+from contextlib import redirect_stdout
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from src import main_router as router
 
 
 def completion(content, finish_reason="stop", refusal=None):
-    return SimpleNamespace(choices=[SimpleNamespace(
-        finish_reason=finish_reason,
-        message=SimpleNamespace(content=content, refusal=refusal),
-    )])
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                finish_reason=finish_reason,
+                message=SimpleNamespace(content=content, refusal=refusal),
+            )
+        ]
+    )
 
 
 class RouterTests(unittest.TestCase):
@@ -58,9 +62,17 @@ class RouterTests(unittest.TestCase):
 
     def test_duplicate_utterance_ids_are_rejected_before_api_calls(self):
         path = self.root / "data" / "dev_utterances.json"
-        path.write_text(json.dumps({"utterances": [
-            {"id": "U001", "text": "ОГПО"}, {"id": "U001", "text": "КАСКО"},
-        ]}), encoding="utf-8")
+        path.write_text(
+            json.dumps(
+                {
+                    "utterances": [
+                        {"id": "U001", "text": "ОГПО"},
+                        {"id": "U001", "text": "КАСКО"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
         with self.assertRaisesRegex(ValueError, "Повторяющийся ID реплики"):
             router.load_data()
 
@@ -74,32 +86,54 @@ class RouterTests(unittest.TestCase):
 
     def test_requested_api_contract_and_multi_intent_order(self):
         client = MagicMock()
-        client.chat.completions.create.return_value = completion(json.dumps({
-            "scenarios": [{"scenario_id": value} for value in ("SC11", "SC27", "SC04", "SC27")],
-        }))
+        client.chat.completions.create.return_value = completion(
+            json.dumps(
+                {
+                    "scenarios": [
+                        {"scenario_id": value} for value in ("SC11", "SC27", "SC04", "SC27")
+                    ],
+                }
+            )
+        )
         text = "Продлите полис, жүргізушіні қосыңыз, и сейчас попал в аварию"
         result = router.predict_intent(client, "Инструкция JSON", text)
         self.assertEqual(result, ["SC11", "SC27", "SC04"])
         client.chat.completions.create.assert_called_once_with(
-            model="gpt-4o-mini", temperature=0.1, response_format={"type": "json_object"},
-            messages=[{"role": "system", "content": "Инструкция JSON"},
-                      {"role": "user", "content": text}],
+            model="gpt-4o-mini",
+            temperature=0.1,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Инструкция JSON"},
+                {"role": "user", "content": text},
+            ],
         )
 
     def test_system_intents_are_valid_predictions(self):
         for scenario_id in router.SYSTEM_IDS:
             with self.subTest(scenario_id=scenario_id):
                 client = MagicMock()
-                client.chat.completions.create.return_value = completion(json.dumps({
-                    "scenarios": [{"scenario_id": scenario_id}],
-                }))
+                client.chat.completions.create.return_value = completion(
+                    json.dumps(
+                        {
+                            "scenarios": [{"scenario_id": scenario_id}],
+                        }
+                    )
+                )
                 self.assertEqual(router.predict_intent(client, "JSON", "Текст"), [scenario_id])
 
     def test_invalid_responses_fall_back_without_partial_predictions(self):
         invalid_contents = [
-            None, "", "{", "null", "[]", "{}", '{"scenarios":[]}',
-            '{"scenarios":"SC01"}', '{"scenarios":["SC01"]}',
-            '{"scenarios":[{}]}', '{"scenarios":[{"scenario_id":null}]}',
+            None,
+            "",
+            "{",
+            "null",
+            "[]",
+            "{}",
+            '{"scenarios":[]}',
+            '{"scenarios":"SC01"}',
+            '{"scenarios":["SC01"]}',
+            '{"scenarios":[{}]}',
+            '{"scenarios":[{"scenario_id":null}]}',
             '{"scenarios":[{"scenario_id":[]}]}',
             '{"scenarios":[{"scenario_id":"SC01"},{"scenario_id":"SC41"}]}',
             '{"scenarios":[{"scenario_id":"SYS_UNKNOWN"}]}',
@@ -113,8 +147,10 @@ class RouterTests(unittest.TestCase):
     def test_incomplete_refused_and_empty_completions_fall_back(self):
         content = '{"scenarios":[{"scenario_id":"SC01"}]}'
         for response in (
-            completion(content, "length"), completion(content, "content_filter"),
-            completion(content, refusal="refused"), SimpleNamespace(choices=[]),
+            completion(content, "length"),
+            completion(content, "content_filter"),
+            completion(content, refusal="refused"),
+            SimpleNamespace(choices=[]),
         ):
             with self.subTest(response=response), self.assertLogs(router.LOGGER, "WARNING"):
                 client = MagicMock()
@@ -138,7 +174,9 @@ class RouterTests(unittest.TestCase):
         good = completion('{"scenarios":[{"scenario_id":"SC01"}]}')
         client = MagicMock()
         client.chat.completions.create.side_effect = [
-            good, completion("invalid json"), TimeoutError("offline test"),
+            good,
+            completion("invalid json"),
+            TimeoutError("offline test"),
         ] + [good] * 101
         output = io.StringIO()
         with (
@@ -150,7 +188,9 @@ class RouterTests(unittest.TestCase):
             factory.return_value.__enter__.return_value = client
             self.assertEqual(router.main(), 0)
             factory.assert_called_once_with(
-                api_key="test-not-a-real-key", timeout=30.0, max_retries=2,
+                api_key="test-not-a-real-key",
+                timeout=30.0,
+                max_retries=2,
             )
         predictions = json.loads((self.root / "predictions.json").read_text(encoding="utf-8"))
         self.assertEqual(len(predictions), 104)
@@ -162,7 +202,9 @@ class RouterTests(unittest.TestCase):
         self.assertIn("Обработка U104...", output.getvalue())
         _, utterances = router.load_data()
         for call, utterance in zip(client.chat.completions.create.call_args_list, utterances):
-            self.assertEqual(call.kwargs["messages"][1], {"role": "user", "content": utterance["text"]})
+            self.assertEqual(
+                call.kwargs["messages"][1], {"role": "user", "content": utterance["text"]}
+            )
 
     def test_missing_key_stops_before_client_creation(self):
         with (

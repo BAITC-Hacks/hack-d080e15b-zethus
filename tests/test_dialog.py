@@ -1,10 +1,9 @@
 """Диалог и учебные действия проверяются без сетевых вызовов."""
 
-from copy import deepcopy
 import json
-from pathlib import Path
-from types import SimpleNamespace
 import unittest
+from copy import deepcopy
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from src.agent.catalog import Catalog, mask_private
@@ -32,7 +31,9 @@ class FakeLLM:
 
     def respond(self, language, purpose, facts):
         self.facts.append(deepcopy(facts))
-        return "Ответ по данным компании." if language == "ru" else "Компания деректері бойынша жауап."
+        return (
+            "Ответ по данным компании." if language == "ru" else "Компания деректері бойынша жауап."
+        )
 
 
 class DialogTests(unittest.TestCase):
@@ -47,8 +48,11 @@ class DialogTests(unittest.TestCase):
         return self.manager.handle(text)
 
     def booking(self, language="ru"):
-        return self.turn(ids=["SC21"], slots={"phone": "+77010000002", "doctor_specialty": "лор",
-                         "preferred_date": "завтра"}, language=language)
+        return self.turn(
+            ids=["SC21"],
+            slots={"phone": "+77010000002", "doctor_specialty": "лор", "preferred_date": "завтра"},
+            language=language,
+        )
 
     def test_greeting_does_not_route_to_goodbye_or_call_model(self):
         self.llm.failure = True
@@ -72,18 +76,33 @@ class DialogTests(unittest.TestCase):
 
     def test_new_request_is_not_swallowed_as_old_slot_answer(self):
         self.turn(ids=["SC11"])
-        result = self.turn(mode="continue", ids=["SC04"], text=(
-            "Здравствуйте! Я хотел узнать статус заявления, хотя нет, "
-            "сначала скажите, как добавить жену в действующий полис ОГПО?"))
+        result = self.turn(
+            mode="continue",
+            ids=["SC04"],
+            text=(
+                "Здравствуйте! Я хотел узнать статус заявления, хотя нет, "
+                "сначала скажите, как добавить жену в действующий полис ОГПО?"
+            ),
+        )
         self.assertEqual(result.trace["scenarios"], ["SC04"])
         self.assertEqual(result.trace["suspended"], ["SC11"])
-        self.assertFalse(any(action.get("result", {}).get("queue") == "claims_team"
-                             for action in result.trace["actions"]))
+        self.assertFalse(
+            any(
+                action.get("result", {}).get("queue") == "claims_team"
+                for action in result.trace["actions"]
+            )
+        )
 
     def test_russian_complaint_interrupts_kazakh_phone_question(self):
         self.turn(ids=["SC22"], slots={"service_name": "лекарства"}, language="kk")
-        result = self.turn(mode="continue", ids=["SC19"], language="ru", text=(
-            "Мне пришла выплата за бампер, но на запчасти не хватит. Я не согласен с суммой."))
+        result = self.turn(
+            mode="continue",
+            ids=["SC19"],
+            language="ru",
+            text=(
+                "Мне пришла выплата за бампер, но на запчасти не хватит. Я не согласен с суммой."
+            ),
+        )
         self.assertEqual(result.trace["active_scenario"], "SC19")
         self.assertEqual(result.trace["language"], "ru")
         self.assertEqual(result.trace["suspended"], ["SC22"])
@@ -205,7 +224,9 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(self.manager.backend.events, [])
 
     def test_foreign_policy_is_not_disclosed(self):
-        result = self.turn(ids=["SC25"], slots={"phone": "+77010000003", "policy_number": "SQ-DMS-604220"})
+        result = self.turn(
+            ids=["SC25"], slots={"phone": "+77010000003", "policy_number": "SQ-DMS-604220"}
+        )
         self.assertNotIn("2026-12-31", result.text)
         self.assertEqual(result.trace["expected_slot"], "policy_number")
 
@@ -232,12 +253,17 @@ class DialogTests(unittest.TestCase):
 
     def test_correction_requires_confirmation_of_new_values(self):
         self.booking()
-        corrected = self.turn(mode="continue", text="Да, но лучше в понедельник",
-                              slots={"preferred_date": "2026-10-05"})
+        corrected = self.turn(
+            mode="continue",
+            text="Да, но лучше в понедельник",
+            slots={"preferred_date": "2026-10-05"},
+        )
         self.assertEqual(self.manager.backend.appointments, [])
         self.assertIn("2026-10-05", corrected.text)
         self.manager.handle("да")
-        self.assertTrue(self.manager.backend.appointments[0]["slot_datetime"].startswith("2026-10-05"))
+        self.assertTrue(
+            self.manager.backend.appointments[0]["slot_datetime"].startswith("2026-10-05")
+        )
 
     def test_rejection_cancels_without_writing(self):
         self.booking()
@@ -266,8 +292,14 @@ class DialogTests(unittest.TestCase):
 
     def test_multi_intent_queue_keeps_identity_and_confirms_contact_change(self):
         original = self.manager.backend.client("C002")["email"]
-        result = self.turn(ids=["SC25", "SC29"], slots={"phone": "+77010000002",
-                           "contact_field": "email", "new_value": "new@mail.example"})
+        result = self.turn(
+            ids=["SC25", "SC29"],
+            slots={
+                "phone": "+77010000002",
+                "contact_field": "email",
+                "new_value": "new@mail.example",
+            },
+        )
         self.assertIn("SQ-DMS-604220", result.text)
         self.assertEqual(result.trace["queued"], ["SC29"])
         preview = self.manager.handle("да")
@@ -284,8 +316,10 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(result.trace["language"], "kk")
 
     def test_quote_is_computed_from_data(self):
-        result = self.turn(ids=["SC01"], slots={"region": "almaty", "vehicle_type": "car",
-                           "drivers_iin": ["850314300121"]})
+        result = self.turn(
+            ids=["SC01"],
+            slots={"region": "almaty", "vehicle_type": "car", "drivers_iin": ["850314300121"]},
+        )
         self.assertIn("30400", result.text)
 
     def test_urgent_intent_is_selected_first(self):
@@ -335,8 +369,11 @@ class BackendTests(unittest.TestCase):
 
     def test_irreversible_action_requires_confirmation_even_outside_manager(self):
         with self.assertRaises(BackendError) as error:
-            self.backend.execute("update_contact", {"client_id": "C002", "contact_field": "email",
-                                 "new_value": "new@mail.example"}, "C002")
+            self.backend.execute(
+                "update_contact",
+                {"client_id": "C002", "contact_field": "email", "new_value": "new@mail.example"},
+                "C002",
+            )
         self.assertEqual(error.exception.code, "confirmation_required")
 
     def test_preview_and_commit_do_not_modify_source_dataset(self):
@@ -347,15 +384,21 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.backend.client("C002")["email"], "aigerim.b@mail.example")
         self.backend.execute("update_contact", args, "C002", confirmed=True)
         self.assertEqual(path.read_bytes(), before)
-        self.assertEqual(MockBackend(self.catalog).client("C002")["email"], "aigerim.b@mail.example")
+        self.assertEqual(
+            MockBackend(self.catalog).client("C002")["email"], "aigerim.b@mail.example"
+        )
 
     def test_mismatched_identity_fields_are_rejected(self):
         with self.assertRaises(BackendError):
             self.backend.execute("find_client", {"phone": "+77010000001", "iin": "920607400233"})
 
     def test_booking_rejects_past_date_and_foreign_policy(self):
-        args = {"policy_number": "SQ-DMS-604220", "doctor_specialty": "ENT",
-                "city": "Astana", "preferred_date": "2026-09-01"}
+        args = {
+            "policy_number": "SQ-DMS-604220",
+            "doctor_specialty": "ENT",
+            "city": "Astana",
+            "preferred_date": "2026-09-01",
+        }
         with self.assertRaises(BackendError):
             self.backend.preview("book_appointment", args, "C002")
         args["preferred_date"] = "2026-10-02"
@@ -363,8 +406,12 @@ class BackendTests(unittest.TestCase):
             self.backend.preview("book_appointment", args, "C001")
 
     def test_claim_ids_do_not_collide(self):
-        args = {"policy_number": "SQ-CASCO-204118", "product_type": "casco",
-                "incident_date": "2026-09-30", "incident_description": "Повреждено стекло"}
+        args = {
+            "policy_number": "SQ-CASCO-204118",
+            "product_type": "casco",
+            "incident_date": "2026-09-30",
+            "incident_description": "Повреждено стекло",
+        }
         first = self.backend.execute("create_claim", args, "C001", confirmed=True)
         second = self.backend.execute("create_claim", args, "C001", confirmed=True)
         self.assertNotEqual(first["claim_number"], second["claim_number"])
@@ -382,20 +429,37 @@ class BackendTests(unittest.TestCase):
 class LLMContractTests(unittest.TestCase):
     def response_client(self, payload):
         client = MagicMock()
-        payload = {**payload, "slots": [
-            {"name": name, "value": value, "evidence": payload.get("evidence", {}).get(name, "")}
-            for name, value in payload["slots"].items()
-        ]}
+        payload = {
+            **payload,
+            "slots": [
+                {
+                    "name": name,
+                    "value": value,
+                    "evidence": payload.get("evidence", {}).get(name, ""),
+                }
+                for name, value in payload["slots"].items()
+            ],
+        }
         payload.pop("evidence", None)
-        client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
-            finish_reason="stop", message=SimpleNamespace(refusal=None, content=json.dumps(payload)),
-        )])
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(refusal=None, content=json.dumps(payload)),
+                )
+            ]
+        )
         return client
 
     def test_history_cannot_supply_slots_or_invent_absence_of_injuries(self):
-        client = self.response_client({"language": "ru", "mode": "new",
-            "slots": {"location": "перекрёсток", "injured": False},
-            "evidence": {"location": "перекрёсток", "injured": "Мы столкнулись"}})
+        client = self.response_client(
+            {
+                "language": "ru",
+                "mode": "new",
+                "slots": {"location": "перекрёсток", "injured": False},
+                "evidence": {"location": "перекрёсток", "injured": "Мы столкнулись"},
+            }
+        )
         manager = DialogManager(FakeLLM())
         manager.state.remember("Я на перекрёстке", "Есть пострадавшие?")
         llm = DialogLLM(client, manager.catalog)
@@ -408,8 +472,14 @@ class LLMContractTests(unittest.TestCase):
         self.assertTrue(format_["json_schema"]["strict"])
 
     def test_explicit_slot_answer_keeps_false(self):
-        client = self.response_client({"language": "ru", "mode": "continue",
-            "slots": {"injured": False}, "evidence": {"injured": "нет"}})
+        client = self.response_client(
+            {
+                "language": "ru",
+                "mode": "continue",
+                "slots": {"injured": False},
+                "evidence": {"injured": "нет"},
+            }
+        )
         manager = DialogManager(FakeLLM())
         manager.state.active = Task("SC11")
         manager.state.expected_slot = "injured"
@@ -417,17 +487,31 @@ class LLMContractTests(unittest.TestCase):
         self.assertIs(result.slots["injured"], False)
 
     def test_phone_uses_source_digits_instead_of_model_invented_value(self):
-        client = self.response_client({"language": "ru", "mode": "continue",
-            "slots": {"phone": "+77010000001"}, "evidence": {"phone": "701-000-00-02"}})
+        client = self.response_client(
+            {
+                "language": "ru",
+                "mode": "continue",
+                "slots": {"phone": "+77010000001"},
+                "evidence": {"phone": "701-000-00-02"},
+            }
+        )
         manager = DialogManager(FakeLLM())
         manager.state.active = Task("SC25")
         manager.state.expected_slot = "phone"
-        result = DialogLLM(client, manager.catalog).understand("Вы ошиблись: 701-000-00-02", manager.state)
+        result = DialogLLM(client, manager.catalog).understand(
+            "Вы ошиблись: 701-000-00-02", manager.state
+        )
         self.assertEqual(manager.catalog.normalize("phone", result.slots["phone"]), "+77010000002")
 
     def test_model_cannot_expand_incomplete_phone_source(self):
-        client = self.response_client({"language": "ru", "mode": "continue",
-            "slots": {"phone": "+77010000002"}, "evidence": {"phone": "7-100-00-02"}})
+        client = self.response_client(
+            {
+                "language": "ru",
+                "mode": "continue",
+                "slots": {"phone": "+77010000002"},
+                "evidence": {"phone": "7-100-00-02"},
+            }
+        )
         manager = DialogManager(FakeLLM())
         result = DialogLLM(client, manager.catalog).understand("7-100-00-02", manager.state)
         with self.assertRaises(ValueError):
@@ -442,19 +526,38 @@ class LLMContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 payload = {"language": "ru", "mode": "new", "slots": []}
                 payload[field] = []
-                client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
-                    finish_reason="stop", message=SimpleNamespace(refusal=None, content=json.dumps(payload)),
-                )])
+                client.chat.completions.create.return_value = SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            finish_reason="stop",
+                            message=SimpleNamespace(refusal=None, content=json.dumps(payload)),
+                        )
+                    ]
+                )
                 with self.assertRaises(ModelError):
                     llm.understand("Проверьте полис", manager.state)
 
     def test_invalid_slot_keys_are_rejected(self):
         client = MagicMock()
-        client.chat.completions.create.return_value = SimpleNamespace(choices=[SimpleNamespace(
-            finish_reason="stop", message=SimpleNamespace(refusal=None, content=json.dumps({
-                "language": "ru", "mode": "continue", "slots": [{"name": "client_id", "value": "C002", "evidence": "C002"}],
-            })),
-        )])
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        refusal=None,
+                        content=json.dumps(
+                            {
+                                "language": "ru",
+                                "mode": "continue",
+                                "slots": [
+                                    {"name": "client_id", "value": "C002", "evidence": "C002"}
+                                ],
+                            }
+                        ),
+                    ),
+                )
+            ]
+        )
         manager = DialogManager(FakeLLM())
         llm = DialogLLM(client, manager.catalog)
         with self.assertRaises(ModelError):

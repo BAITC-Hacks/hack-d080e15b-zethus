@@ -1,4 +1,2 @@
-openai
-langchain
-python-dotenv
-requests
+openai==3.19.0
+python-dotenv==1.2.3
