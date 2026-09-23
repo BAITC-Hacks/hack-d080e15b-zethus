@@ -3,7 +3,7 @@
   "model": "gpt-4o-mini",
   "before": [
     {
-      "input": "Здравствуйте хочу перевести деньги",
+      "input_summary": "Запрос о банковской операции вне страхового обслуживания.",
       "reply": "С этим я, к сожалению, не помогу. Могу подсказать по страховке авто, здоровья, жилья и поездок.",
       "scenarios": [
         "SYS_OUT_OF_SCOPE"
@@ -13,40 +13,40 @@
       "operator_handoff": false
     },
     {
-      "input": "Здравствуйте у меня авария",
+      "input_summary": "Сообщение о ДТП.",
       "reply": "Если есть пострадавшие, сначала звоните 112. Все целы? Есть пострадавшие?",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария"
+        "topic": "[redacted]"
       },
       "expected_slot": "injured",
       "operator_handoff": false
     },
     {
-      "input": "да один умер",
+      "input_summary": "Сообщение о тяжёлых последствиях ДТП.",
       "reply": "Все целы? Есть пострадавшие?",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария"
+        "topic": "[redacted]"
       },
       "expected_slot": "injured",
       "operator_handoff": false
     },
     {
-      "input": "А91 Д13",
+      "input_summary": "Короткий адрес места происшествия.",
       "reply": "Проверьте формат данных. Какой госномер у машины виновника?",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария"
+        "topic": "[redacted]"
       },
       "expected_slot": "culprit_vehicle_plate",
       "operator_handoff": false
@@ -54,7 +54,7 @@
   ],
   "after": [
     {
-      "input": "Здравствуйте хочу перевести деньги",
+      "input_summary": "Запрос о банковской операции вне страхового обслуживания.",
       "reply": "С этим я, к сожалению, не помогу. Могу подсказать по страховке авто, здоровья, жилья и поездок.",
       "scenarios": [
         "SYS_OUT_OF_SCOPE"
@@ -64,43 +64,43 @@
       "operator_handoff": false
     },
     {
-      "input": "Здравствуйте у меня авария",
+      "input_summary": "Сообщение о ДТП.",
       "reply": "Если есть пострадавшие, сначала звоните 112. Есть ли пострадавшие?",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария"
+        "topic": "[redacted]"
       },
       "expected_slot": "injured",
       "operator_handoff": false
     },
     {
-      "input": "да один умер",
+      "input_summary": "Сообщение о тяжёлых последствиях ДТП.",
       "reply": "Если ещё не звонили, немедленно позвоните 112. Это демо не вызывает экстренные службы. Где вы сейчас находитесь?",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария",
+        "topic": "[redacted]",
         "injured": true
       },
       "expected_slot": "location",
       "operator_handoff": false
     },
     {
-      "input": "А91 Д13",
+      "input_summary": "Короткий адрес места происшествия.",
       "reply": "Запрос и контекст переданы оператору в демо. Живой оператор в этом демо не подключается.",
       "scenarios": [
         "SC11"
       ],
       "slots": {
         "incident_description": "авария",
-        "topic": "Здравствуйте у меня авария",
+        "topic": "[redacted]",
         "injured": true,
-        "location": "А91 Д13"
+        "location": "[redacted]"
       },
       "expected_slot": null,
       "operator_handoff": true
@@ -108,7 +108,7 @@
   ],
   "variants": [
     {
-      "input": "есть. умер водитель другой",
+      "input_summary": "Уточнение о тяжёлых последствиях ДТП.",
       "reply": "Если ещё не звонили, немедленно позвоните 112. Это демо не вызывает экстренные службы. Где вы сейчас находитесь?",
       "scenarios": [
         "SC11"
@@ -189,5 +189,6 @@
       "passed": true,
       "expected_injured": false
     }
-  ]
+  ],
+  "transcript_policy": "User-provided wording and locations are omitted from this public report. input_summary describes an input without reproducing it; [redacted] marks an omitted slot value. Recorded responses, state transitions and timing values are preserved. Current synthetic examples are not claimed to be the exact inputs of this historical run."
 }

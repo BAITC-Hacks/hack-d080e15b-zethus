@@ -6,7 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
-from src.agent.catalog import Catalog, mask_private
+from src.agent.catalog import SPECIALTIES, Catalog, mask_private
 from src.agent.llm import ModelError
 from src.agent.numbers import identifier_digits
 from src.agent.state import DialogState, PendingAction, Task, TurnResult
@@ -465,6 +465,18 @@ class DialogManager:
             return self.say("Чем помочь?", "Қалай көмектесе аламын?")
         sid = task.scenario_id
         self._routed = self._routed or [sid]
+        if sid == "SC21" and not task.slots.get("doctor_specialty"):
+            # Иногда LLM кладёт явно названного врача в соседнее медицинское поле.
+            # Принимаем только точную специальность из словаря алиасов.
+            try:
+                specialty = self.catalog.normalize(
+                    "doctor_specialty", task.slots.get("service_name")
+                )
+            except (ValueError, TypeError):
+                pass
+            else:
+                if specialty in SPECIALTIES.values():
+                    task.slots["doctor_specialty"] = specialty
         scenario = self.catalog.scenarios[sid]
         action = PLANS.get(sid)
         if action is None:

@@ -70,6 +70,36 @@ class DialogTests(unittest.TestCase):
         self.assertTrue(result.trace["awaiting_confirmation"])
         self.assertEqual(self.manager.backend.appointments, [])
 
+    def test_booking_recovers_explicit_specialty_from_adjacent_service_field(self):
+        result = self.turn(
+            ids=["SC21"],
+            slots={
+                "service_name": "лор",
+                "phone": "+77010000002",
+                "preferred_date": "завтра",
+                "city": "Astana",
+            },
+        )
+        self.assertEqual(result.trace["slots"]["doctor_specialty"], "ENT")
+        self.assertTrue(result.trace["awaiting_confirmation"])
+        self.assertFalse(self.manager.backend.appointments)
+        self.manager.handle("да")
+        self.assertEqual(len(self.manager.backend.appointments), 1)
+
+    def test_booking_does_not_invent_a_doctor_from_an_unrelated_service(self):
+        result = self.turn(
+            ids=["SC21"],
+            slots={
+                "service_name": "лекарства",
+                "phone": "+77010000002",
+                "preferred_date": "завтра",
+                "city": "Astana",
+            },
+        )
+        self.assertEqual(result.trace["expected_slot"], "doctor_specialty")
+        self.assertNotIn("doctor_specialty", result.trace["slots"])
+        self.assertFalse(self.manager.state.pending)
+
     def test_greeting_with_request_is_routed(self):
         result = self.turn(ids=["SC25"], text="Здравствуйте, проверьте полис")
         self.assertEqual(result.trace["active_scenario"], "SC25")
@@ -178,8 +208,9 @@ class DialogTests(unittest.TestCase):
         self.assertIn("не подключается", handed_off.text)
         self.llm.failure = True
         event_count = len(self.manager.backend.events)
-        for text in ("Да, подключайся.", "да", "Да, подключайте"):
+        for text in ("Да, соединяйте.", "да", "Да, подключайте"):
             result = self.manager.handle(text)
+            self.assertEqual(result.trace["event"], "operator_handoff")
             self.assertIsNone(result.trace["expected_slot"])
             self.assertIsNone(result.trace["active_scenario"])
             self.assertEqual(result.trace["suspended"], ["SC21"])
@@ -427,7 +458,7 @@ class DialogTests(unittest.TestCase):
         self.assertIn("Живой оператор в этом демо не подключается", result.text)
 
     def test_compact_location_is_preserved_and_forwarded_without_model(self):
-        for location in ("А91 Д13", "Б17 д. 42", "A12 дом 7/1", "А91 үй 13"):
+        for location in ("Б12 Д8", "Б17 д. 42", "A12 дом 7/1", "Б12 үй 8"):
             with self.subTest(location=location):
                 manager = DialogManager(FakeLLM())
                 manager.state.active = Task("SC11", {"injured": True})
@@ -447,7 +478,7 @@ class DialogTests(unittest.TestCase):
         result = self.turn(
             ids=["SC33"],
             slots={"city": "Almaty"},
-            text="А91 Д13, а сначала скажите адрес офиса в Алматы",
+            text="Б12 Д8, а сначала скажите адрес офиса в Алматы",
         )
         self.assertEqual(result.trace["scenarios"], ["SC33"])
         self.assertIn("SC11", result.trace["suspended"])
@@ -602,10 +633,63 @@ class LLMContractTests(unittest.TestCase):
         result = DialogLLM(client, manager.catalog).understand("нет", manager.state)
         self.assertIs(result.slots["injured"], False)
 
+    def test_operator_request_cannot_cancel_the_previous_task(self):
+        client = self.response_client({"language": "ru", "mode": "cancel", "slots": {}})
+        manager = DialogManager(DialogLLM(client, Catalog()))
+        manager.state.active = Task("SC21")
+        manager.state.expected_slot = "phone"
+        manager.llm.route = MagicMock(return_value=["SC37"])
+        result = manager.handle("Соедините меня с оператором.")
+        self.assertTrue(result.trace["operator_handoff"])
+        self.assertIn("SC21", result.trace["suspended"])
+        self.assertNotIn("отменён", result.text)
+
+    def test_explicit_cancellation_is_still_respected(self):
+        for text in (
+            "Я передумал, отмените запись",
+            "Забудьте про запись",
+            "Больше не записывайте меня",
+            "Отмените запись и позовите оператора",
+        ):
+            with self.subTest(text=text):
+                client = self.response_client({"language": "ru", "mode": "cancel", "slots": {}})
+                manager = DialogManager(DialogLLM(client, Catalog()))
+                manager.state.active = Task("SC21")
+                result = manager.handle(text)
+                self.assertIsNone(manager.state.active)
+                self.assertIn("отменён", result.text)
+                self.assertFalse(result.trace["actions"])
+
+    def test_language_hint_does_not_override_a_new_spoken_language(self):
+        client = self.response_client({"language": "kk", "mode": "new", "slots": {}})
+        manager = DialogManager(DialogLLM(client, Catalog()))
+        manager.state.language = "ru"
+        manager.llm.understand("ДМС полисімнің мерзімін тексеріңізші", manager.state)
+        prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn('"language": null', prompt)
+        manager.state.language = "kk"
+        manager.llm.understand("2026-10-02", manager.state)
+        prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        self.assertIn('"language": "kk"', prompt)
+
+    def test_kazakh_orthography_corrects_an_incorrect_russian_model_label(self):
+        client = self.response_client({"language": "ru", "mode": "new", "slots": {}})
+        manager = DialogManager(DialogLLM(client, Catalog()))
+        result = manager.llm.understand("ДМС полисімнің мерзімін тексеріңізші", manager.state)
+        self.assertEqual(result.language, "kk")
+
+    def test_single_kazakh_word_does_not_override_a_predominantly_russian_request(self):
+        client = self.response_client({"language": "ru", "mode": "new", "slots": {}})
+        manager = DialogManager(DialogLLM(client, Catalog()))
+        result = manager.llm.understand(
+            "Сәлем, хочу проверить мой полис и узнать когда он заканчивается", manager.state
+        )
+        self.assertEqual(result.language, "ru")
+
     def test_casualty_evidence_is_not_discarded(self):
         for text, language in (
-            ("да один умер", "ru"),
-            ("есть. умер водитель другой", "ru"),
+            ("Сообщают, что участник аварии умер", "ru"),
+            ("Водитель скончался", "ru"),
             ("Пассажир погиб", "ru"),
             ("Человек без сознания", "ru"),
             ("Жүргізуші қайтыс болды", "kk"),
@@ -634,20 +718,20 @@ class LLMContractTests(unittest.TestCase):
                 "language": "ru",
                 "mode": "continue",
                 "slots": {"injured": True},
-                "evidence": {"injured": "один умер"},
+                "evidence": {"injured": "Пассажир погиб"},
             }
         )
         manager = DialogManager(DialogLLM(client, Catalog()))
         manager.state.active = Task("SC11", attempts={"urgency_advised": 1})
         manager.state.expected_slot = "injured"
-        result = manager.handle("да один умер")
+        result = manager.handle("Пассажир погиб в ДТП")
         self.assertIs(result.trace["slots"]["injured"], True)
         self.assertEqual(result.trace["expected_slot"], "location")
         self.assertIn("112", result.text)
-        result = manager.handle("А91 Д13")
+        result = manager.handle("Б12 Д8")
         self.assertTrue(result.trace["operator_handoff"])
         self.assertIsNone(result.trace["expected_slot"])
-        self.assertEqual(result.trace["slots"]["location"], "А91 Д13")
+        self.assertEqual(result.trace["slots"]["location"], "Б12 Д8")
         client.chat.completions.create.assert_called_once()
 
     def test_no_fatalities_does_not_prove_no_injuries(self):

@@ -97,6 +97,14 @@ class ExplainabilityTests(unittest.TestCase):
         }
         llm = self.llm(payload)
         self.assertEqual(llm.explain_route("Запишите к лору", ["SC21"]), payload)
+        format_ = llm.client.chat.completions.create.call_args.kwargs["response_format"]
+        self.assertEqual(format_["type"], "json_schema")
+        schema = format_["json_schema"]["schema"]
+        self.assertTrue(format_["json_schema"]["strict"])
+        selected = schema["properties"]["scenarios"]["items"]
+        self.assertEqual(selected["properties"]["scenario_id"]["enum"], ["SC21"])
+        alternatives = schema["properties"]["alternatives"]["items"]
+        self.assertNotIn("SC21", alternatives["properties"]["scenario_id"]["enum"])
 
     def test_invalid_explanations_fail_closed(self):
         for value in (True, -0.1, 1.1, float("nan"), "0.9"):

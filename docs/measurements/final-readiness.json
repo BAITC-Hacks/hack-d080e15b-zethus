@@ -1,0 +1,313 @@
+{
+  "scope": "Final hackathon smoke checks using real API calls and synthetic demo inputs; not a hidden-set evaluation or a latency benchmark.",
+  "checked_at_utc": "2026-09-23T12:22:44.648445+00:00",
+  "router_model": "gpt-4o-mini",
+  "dialogs": [
+    {
+      "name": "policy_kk",
+      "passed": true,
+      "turns": [
+        {
+          "input": "ДМС полисімнің мерзімін тексеріңізші.",
+          "reply": "Телефон нөміріңізді айтып жіберіңізші.",
+          "language": "kk",
+          "scenarios": [
+            "SC25"
+          ],
+          "expected_slot": "phone",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input": "+77010000002",
+          "reply": "SQ-DMS-604220 полисі жарамды. Мерзімі: 2026-01-01 — 2026-12-31.",
+          "language": "kk",
+          "scenarios": [
+            "SC25"
+          ],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": [
+            "find_client",
+            "get_policies",
+            "get_policy"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "appointment_ru",
+      "passed": true,
+      "turns": [
+        {
+          "input": "Здравствуйте",
+          "reply": "Здравствуйте! Чем помочь?",
+          "language": "ru",
+          "scenarios": [],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input": "Хочу записаться к лору завтра в Астане по ДМС.",
+          "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+          "language": "ru",
+          "scenarios": [
+            "SC21"
+          ],
+          "expected_slot": "phone",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input": "+77010000002",
+          "reply": "Запись: ЛОР, Saulet Medical, 2026-10-02T10:00. Подтверждаете?",
+          "language": "ru",
+          "scenarios": [
+            "SC21"
+          ],
+          "expected_slot": null,
+          "awaiting_confirmation": true,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": [
+            "find_client",
+            "get_policies",
+            "book_appointment"
+          ]
+        },
+        {
+          "input": "да",
+          "reply": "Запись создана в демо: Saulet Medical, 2026-10-02T10:00.",
+          "language": "ru",
+          "scenarios": [
+            "SC21"
+          ],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": [
+            "book_appointment"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "accident",
+      "passed": true,
+      "turns": [
+        {
+          "input_summary": "Сообщение о ДТП.",
+          "reply": "Если есть пострадавшие, сначала звоните 112. Есть ли пострадавшие?",
+          "language": "ru",
+          "scenarios": [
+            "SC11"
+          ],
+          "expected_slot": "injured",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input_summary": "Сообщение о тяжёлых последствиях ДТП.",
+          "reply": "Если ещё не звонили, немедленно позвоните 112. Это демо не вызывает экстренные службы. Где вы сейчас находитесь?",
+          "language": "ru",
+          "scenarios": [
+            "SC11"
+          ],
+          "expected_slot": "location",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input_summary": "Короткий адрес места происшествия.",
+          "reply": "Запрос и контекст переданы оператору в демо. Живой оператор в этом демо не подключается.",
+          "language": "ru",
+          "scenarios": [
+            "SC11"
+          ],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": true,
+          "suspended": [],
+          "actions": [
+            "transfer_to_operator"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "topic_switch",
+      "passed": true,
+      "turns": [
+        {
+          "input": "Хочу записаться к врачу по ДМС.",
+          "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+          "language": "ru",
+          "scenarios": [
+            "SC21"
+          ],
+          "expected_slot": "phone",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        },
+        {
+          "input": "Соедините меня с оператором.",
+          "reply": "Запрос и контекст переданы оператору в демо. Живой оператор в этом демо не подключается.",
+          "language": "ru",
+          "scenarios": [
+            "SC37"
+          ],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": true,
+          "suspended": [
+            "SC21"
+          ],
+          "actions": [
+            "transfer_to_operator"
+          ]
+        },
+        {
+          "input_summary": "Согласие на передачу оператору.",
+          "reply": "Передача оператору здесь учебная: живой оператор не подключается. Чтобы продолжить с ботом, скажите «вернёмся к предыдущему вопросу».",
+          "language": "ru",
+          "scenarios": [],
+          "expected_slot": null,
+          "awaiting_confirmation": false,
+          "operator_handoff": true,
+          "suspended": [
+            "SC21"
+          ],
+          "actions": []
+        },
+        {
+          "input": "Вернёмся к записи к врачу.",
+          "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+          "language": "ru",
+          "scenarios": [
+            "SC21"
+          ],
+          "expected_slot": "phone",
+          "awaiting_confirmation": false,
+          "operator_handoff": false,
+          "suspended": [],
+          "actions": []
+        }
+      ]
+    }
+  ],
+  "mixed_route": {
+    "ids": [
+      "SC21",
+      "SC22"
+    ],
+    "passed": true
+  },
+  "voice": {
+    "scope": "Single live browser voice smoke; synthetic Russian audio captured through Chromium microphone; not a representative latency median",
+    "source_text": "Можно оплатить КАСКО в рассрочку?",
+    "input_duration_seconds": 3.768,
+    "trace": {
+      "turn": 1,
+      "transcript": "Можно оплатить КАСКО в рассрочку?",
+      "language": "ru",
+      "event": null,
+      "scenarios": [
+        "SC31"
+      ],
+      "active_scenario": null,
+      "client_id": null,
+      "slots": {
+        "topic": "оплата КАСКО в рассрочку"
+      },
+      "router_called": true,
+      "routing": {
+        "scenarios": [
+          {
+            "scenario_id": "SC31",
+            "confidence": 1,
+            "reason": "Запрос о способах оплаты соответствует сценарию."
+          }
+        ],
+        "alternatives": []
+      },
+      "alternatives": [],
+      "reason": "Выбор LLM по каталогу; подробное объяснение доступно в веб-демо.",
+      "expected_slot": null,
+      "awaiting_confirmation": false,
+      "awaiting_resume": false,
+      "operator_handoff": false,
+      "queued": [],
+      "suspended": [],
+      "actions": [
+        {
+          "name": "kb_lookup",
+          "mode": "execute",
+          "result": {
+            "facts": {
+              "methods": [
+                "Bank card in the app or on the website",
+                "Payment link by SMS",
+                "Bank transfer (companies)",
+                "Card terminal in any office"
+              ],
+              "cash": "Not accepted.",
+              "installments": {
+                "casco": "2 or 4 equal payments, no overpayment",
+                "dms_individual": "2 payments",
+                "ogpo": "Full payment only",
+                "travel": "Full payment only"
+              }
+            },
+            "question": "оплата КАСКО в рассрочку",
+            "product_type": null
+          }
+        }
+      ],
+      "latency_ms": {
+        "triage": 1319,
+        "router": 868,
+        "response": 820,
+        "dialog": 2141,
+        "stt": 875,
+        "tts_first_chunk": 1003,
+        "tts": null,
+        "total": 4765,
+        "server_to_text": 3016,
+        "explanation": 851
+      },
+      "parallel_routing": true,
+      "explanation_status": "ready",
+      "client_latency_ms": {
+        "speech_to_playback_estimate": 4765,
+        "stop_to_playback": 4207,
+        "request_to_playback": 4206,
+        "excluded_from_median": false,
+        "measurement": "Browser playing event; speech end estimated by microphone energy"
+      }
+    },
+    "javascript_errors": []
+  },
+  "limitations": [
+    "The unit tests mock external APIs; these live checks cover four dialogs, one mixed-language routing request and one browser voice request.",
+    "The browser used synthetic audio through a virtual microphone, not the laptop microphone and speakers.",
+    "Voice playback started 4765 ms after the estimated end of speech in this single sample; the 1500 ms bonus target is not met.",
+    "No Telegram messages, real operator calls or production backend operations were sent."
+  ],
+  "transcript_policy": "User-provided wording and locations are omitted from this public report. input_summary describes an input without reproducing it; [redacted] marks an omitted slot value. Recorded responses, state transitions and timing values are preserved. Current synthetic examples are not claimed to be the exact inputs of this historical run."
+}
