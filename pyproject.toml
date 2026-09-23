@@ -11,6 +11,8 @@ select = ["E4", "E7", "E9", "F", "I"]
 "src/main_router.py" = ["E402"]
 "src/chat_demo.py" = ["E402"]
 "src/telegram_bot.py" = ["E402"]
+"src/web_demo.py" = ["E402"]
+"src/benchmark.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

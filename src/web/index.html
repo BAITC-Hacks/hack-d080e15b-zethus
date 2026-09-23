@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SaqtaDauys · Voice Router</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="SaqtaDauys — главная"><span class="brand-mark">S</span> Saqta<span>Dauys</span></a>
+    <span class="chip"><i></i> Voice Router · Zethus</span>
+  </header>
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">СЛУШАЕМ. ПОНИМАЕМ. ПОМОГАЕМ.</p><h1>Говорите своими словами.</h1>
+      <p class="subtitle">Страховой ассистент на русском и казахском. <br>Вы ведёте разговор — рядом видно, как бот выбирает следующий шаг.</p></div>
+      <div class="intro-note"><strong>Учебное демо</strong><span>Вымышленные клиенты и операции.<br>Речь и текст обрабатываются OpenAI.<br>Ответ озвучивает синтезированный голос.</span></div>
+    </section>
+    <div class="workspace">
+      <section class="panel conversation" aria-label="Разговор с ассистентом">
+        <div class="panel-heading"><div><p class="eyebrow">ВАШ РАЗГОВОР</p><h2>Saqta Insurance</h2></div><button id="reset" class="subtle">Новый разговор</button></div>
+        <div id="messages" class="messages" role="log" aria-live="polite">
+          <article class="message assistant"><span>SAQTA</span><p>Здравствуйте! Сәлеметсіз бе! Чем могу помочь?</p></article>
+        </div>
+        <div class="composer">
+          <div class="voice-controls"><button id="record" class="record" disabled><span class="mic-icon">●</span> Говорить</button><span id="status" role="status">Подключаемся к демо…</span></div>
+          <div class="audio-row"><audio id="reply-audio" controls preload="none" aria-label="Голосовой ответ"></audio><label class="voice-toggle"><input id="voice" type="checkbox" checked> Голос</label></div>
+          <form id="text-form"><label class="sr-only" for="text">Текстовая реплика</label><input id="text" autocomplete="off" maxlength="4000" placeholder="Или напишите сообщение…" disabled><button id="send" type="submit" disabled aria-label="Отправить сообщение">↑</button></form>
+          <p class="hint">Нажмите «Говорить», затем «Стоп». До 60 секунд. Для идентификации используйте учебный номер ниже.</p>
+        </div>
+      </section>
+      <aside class="panel inspector" aria-label="Панель трассировки">
+        <div class="panel-heading"><div><p class="eyebrow">ПАНЕЛЬ СУПЕРВИЗОРА</p><h2>Как принято решение</h2></div><span id="turn-label" class="chip">Ожидаем реплику</span></div>
+        <div class="inspector-body">
+          <div class="decision"><span class="field-label">Выбранный сценарий</span><strong id="scenarios">—</strong><span id="language" class="muted">Русский / қазақша</span></div>
+          <div class="trace-block"><span class="field-label">Обоснование</span><p id="reason">После ответа здесь появятся выбор модели и объяснение следующего шага.</p></div>
+          <div class="trace-block"><span class="field-label">Альтернативы</span><p id="alternatives" class="muted">Пока нет данных.</p></div>
+          <div class="timing-grid"><div><span>Маршрутизатор</span><strong id="router-time">—</strong><small>ориентир 500 мс</small></div><div><span>До воспроизведения</span><strong id="playback-time">—</strong><small id="playback-note">замер в браузере</small></div></div>
+          <p id="median" class="hint">Медиана появится после голосовых запросов. Порог 1,5 с — бонус, а не условие сдачи.</p>
+          <div id="stages" class="stage-list"></div>
+          <details open><summary>Поля и действия</summary><pre id="actions">Нет активной задачи.</pre></details>
+          <details><summary>Полная трассировка JSON</summary><pre id="trace">{}</pre><button id="download" class="subtle" disabled>Скачать JSON</button></details>
+          <p class="hint">Объяснение готовится отдельным запросом после выбора сценария. Его оценка уверенности не является измеренной вероятностью. Первый фрагмент TTS (до 1024 байт) и начало воспроизведения измеряются отдельно.</p>
+        </div>
+      </aside>
+    </div>
+    <section class="demo-data"><div><p class="eyebrow">ДАННЫЕ ДЛЯ ПРОВЕРКИ</p><h2>Попробуйте один из запросов</h2></div>
+      <div class="examples"><button data-example="Хочу записаться к лору завтра в Астане по ДМС">Записаться к врачу</button><button data-example="Проверьте, действует ли мой полис ОГПО">Проверить полис</button><button data-example="Алматыдағы кеңсе мекенжайын айтыңызшы">Қазақша сұрау</button></div>
+      <p id="demo-help" class="demo-help"></p>
+    </section>
+    <footer>Команда Zethus · HackAlem AI <span>Учебная дата: <span id="snapshot">2026-10-01</span></span></footer>
+  </main>
+</body>
+</html>

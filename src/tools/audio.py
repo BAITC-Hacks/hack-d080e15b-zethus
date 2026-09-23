@@ -1,5 +1,7 @@
 """Распознавание и озвучивание сообщений; аудио хранится только в памяти."""
 
+from functools import lru_cache
+
 from openai import OpenAI, OpenAIError
 
 from src.config import (
@@ -22,9 +24,19 @@ class AudioService:
     def __init__(self, client: OpenAI):
         self.client = client
 
-    def transcribe(self, content: bytes, *, expected_slot: str | None = None) -> str:
+    def transcribe(
+        self, content: bytes, *, expected_slot: str | None = None, filename: str = "voice.ogg"
+    ) -> str:
         if not content or len(content) > MAX_AUDIO_BYTES:
             raise AudioError("Отправьте голосовое сообщение размером до 10 МБ.")
+        formats = {
+            "voice.ogg": "audio/ogg",
+            "voice.webm": "audio/webm",
+            "voice.mp4": "audio/mp4",
+            "voice.wav": "audio/wav",
+        }
+        if filename not in formats:
+            raise AudioError("Формат аудио не поддерживается.")
         try:
             identifiers = expected_slot in {"phone", "iin"}
             prompt = (
@@ -43,7 +55,7 @@ class AudioService:
             # Язык не фиксируем: в одном сообщении возможны русский и казахский.
             result = self.client.audio.transcriptions.create(
                 model=IDENTIFIER_TRANSCRIPTION_MODEL if identifiers else TRANSCRIPTION_MODEL,
-                file=("voice.ogg", content, "audio/ogg"),
+                file=(filename, content, formats[filename]),
                 response_format="json",
                 temperature=0,
                 prompt=prompt,
@@ -58,23 +70,46 @@ class AudioService:
                 f"Распознавание недоступно ({type(exc).__name__}). Можно написать текстом."
             ) from None
 
+    def _speech_options(self, text: str, language: str) -> dict:
+        return dict(
+            model=SPEECH_MODEL,
+            voice=SPEECH_VOICE,
+            input=text,
+            response_format="mp3",
+            instructions=(
+                "Speak calmly and clearly in Kazakh. Read the supplied text exactly."
+                if language == "kk"
+                else "Говори спокойно и чётко по-русски. Прочитай переданный текст без добавлений."
+            ),
+        )
+
+    @lru_cache(maxsize=16)
     def synthesize(self, text: str, language: str) -> bytes:
+        """Повторные одинаковые ответы озвучиваются из ограниченного кеша в памяти."""
         try:
-            result = self.client.audio.speech.create(
-                model=SPEECH_MODEL,
-                voice=SPEECH_VOICE,
-                input=text,
-                response_format="mp3",
-                instructions=(
-                    "Speak calmly and clearly in Kazakh. Read the supplied text exactly."
-                    if language == "kk"
-                    else "Говори спокойно и чётко по-русски. Прочитай переданный текст без добавлений."
-                ),
-            )
+            result = self.client.audio.speech.create(**self._speech_options(text, language))
             content = result.content
             if not content:
                 raise AudioError("Озвучивание вернуло пустую запись. Ответ доступен текстом.")
             return content
+        except OpenAIError as exc:
+            raise AudioError(
+                f"Озвучивание недоступно ({type(exc).__name__}). Ответ доступен текстом."
+            ) from None
+
+    def stream_speech(self, text: str, language: str):
+        """Отдать MP3 порциями: браузер начнёт воспроизведение до конца синтеза."""
+        try:
+            with self.client.audio.speech.with_streaming_response.create(
+                **self._speech_options(text, language)
+            ) as response:
+                received = False
+                for chunk in response.iter_bytes(chunk_size=1024):
+                    if chunk:
+                        received = True
+                        yield chunk
+                if not received:
+                    raise AudioError("Озвучивание вернуло пустую запись. Ответ доступен текстом.")
         except OpenAIError as exc:
             raise AudioError(
                 f"Озвучивание недоступно ({type(exc).__name__}). Ответ доступен текстом."

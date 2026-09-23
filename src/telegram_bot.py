@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -127,6 +128,7 @@ class TelegramBot:
             return
         started = time.perf_counter()
         stt_ms = 0
+        transcript = None
         voice = message.get("voice")
         if voice:
             if (
@@ -156,7 +158,7 @@ class TelegramBot:
                 )
                 return
             stt_ms = round((time.perf_counter() - started) * 1000)
-            self.api.send_text(chat_id, "Распознано / Танылған мәтін: " + mask_private(text))
+            transcript = mask_private(text)
         elif not text:
             self.api.send_text(
                 chat_id, "Отправьте текст или голосовое сообщение через микрофон Telegram."
@@ -166,29 +168,42 @@ class TelegramBot:
             session.manager.state.pending = None
             self.api.send_text(chat_id, "Напишите короче: до 4000 символов.")
             return
-        try:
-            self.api.call("sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        except TelegramError:
-            pass  # Необязательный индикатор не должен мешать самому ответу.
         dialog_started = time.perf_counter()
         result = session.manager.handle(text)
         dialog_ms = round((time.perf_counter() - dialog_started) * 1000)
-        self.api.send_text(chat_id, result.text)
+        message_text = (
+            f"Распознано / Танылған мәтін: {transcript}\n\n{result.text}"
+            if transcript is not None
+            else result.text
+        )
         tts_ms = 0
         if session.voice:
-            tts_started = time.perf_counter()
-            try:
-                speech = self.audio.synthesize(result.text, session.manager.state.language)
-                tts_ms = round((time.perf_counter() - tts_started) * 1000)
-                self.api.send_voice(chat_id, speech)
-            except AudioError as exc:
-                self.api.send_text(chat_id, str(exc))
-        result.trace["latency_ms"] = {
-            "stt": stt_ms,
-            "dialog": dialog_ms,
-            "tts": tts_ms,
-            "total_processing": round((time.perf_counter() - started) * 1000),
-        }
+
+            def synthesize():
+                tts_started = time.perf_counter()
+                content = self.audio.synthesize(result.text, session.manager.state.language)
+                return content, round((time.perf_counter() - tts_started) * 1000)
+
+            # Озвучка не ждёт доставки текста. Состояние диалога уже зафиксировано.
+            with ThreadPoolExecutor(max_workers=1) as workers:
+                speech_future = workers.submit(synthesize)
+                self.api.send_text(chat_id, message_text)
+                try:
+                    speech, tts_ms = speech_future.result()
+                    self.api.send_voice(chat_id, speech)
+                except AudioError as exc:
+                    self.api.send_text(chat_id, str(exc))
+        else:
+            self.api.send_text(chat_id, message_text)
+        result.trace["latency_ms"].update(
+            {
+                "stt": stt_ms,
+                "dialog": dialog_ms,
+                "tts": tts_ms,
+                "total_processing": round((time.perf_counter() - started) * 1000),
+                "total": None,  # Telegram API не сообщает время воспроизведения на устройстве.
+            }
+        )
         if session.trace:
             self.api.send_trace(chat_id, result.trace)
         LOGGER.info("Обработана реплика: %s мс", result.trace["latency_ms"]["total_processing"])

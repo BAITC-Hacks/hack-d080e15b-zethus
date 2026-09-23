@@ -1,0 +1,85 @@
+{
+  "scope": "Single live browser voice smoke; synthetic Russian audio captured through Chromium microphone; not a representative latency median",
+  "source_text": "Можно оплатить КАСКО в рассрочку?",
+  "input_duration_seconds": 3.216,
+  "trace": {
+    "turn": 1,
+    "transcript": "Можно оплатить КАСКО в рассрочку?",
+    "language": "ru",
+    "event": null,
+    "scenarios": [
+      "SC31"
+    ],
+    "active_scenario": null,
+    "client_id": null,
+    "slots": {
+      "topic": "оплата КАСКО в рассрочку"
+    },
+    "router_called": true,
+    "routing": {
+      "scenarios": [
+        {
+          "scenario_id": "SC31",
+          "confidence": 0.9,
+          "reason": "Клиент спрашивает о способах оплаты, что соответствует сценарию."
+        }
+      ],
+      "alternatives": []
+    },
+    "alternatives": [],
+    "reason": "Выбор LLM по каталогу; подробное объяснение доступно в веб-демо.",
+    "expected_slot": null,
+    "awaiting_confirmation": false,
+    "awaiting_resume": false,
+    "operator_handoff": false,
+    "queued": [],
+    "suspended": [],
+    "actions": [
+      {
+        "name": "kb_lookup",
+        "mode": "execute",
+        "result": {
+          "facts": {
+            "methods": [
+              "Bank card in the app or on the website",
+              "Payment link by SMS",
+              "Bank transfer (companies)",
+              "Card terminal in any office"
+            ],
+            "cash": "Not accepted.",
+            "installments": {
+              "casco": "2 or 4 equal payments, no overpayment",
+              "dms_individual": "2 payments",
+              "ogpo": "Full payment only",
+              "travel": "Full payment only"
+            }
+          },
+          "question": "оплата КАСКО в рассрочку",
+          "product_type": null
+        }
+      }
+    ],
+    "latency_ms": {
+      "triage": 1602,
+      "router": 733,
+      "response": 770,
+      "dialog": 2372,
+      "stt": 770,
+      "tts_first_chunk": 923,
+      "tts": 1639,
+      "total": 5190,
+      "server_to_text": 3142,
+      "explanation": 1088
+    },
+    "parallel_routing": true,
+    "explanation_status": "ready",
+    "client_latency_ms": {
+      "speech_to_playback_estimate": 5190,
+      "stop_to_playback": 4372,
+      "request_to_playback": 4370,
+      "excluded_from_median": false,
+      "measurement": "Browser playing event; speech end estimated by microphone energy"
+    }
+  },
+  "javascript_errors": []
+}

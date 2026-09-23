@@ -1,0 +1,378 @@
+{
+  "scope": "Live API dialog only; excludes STT, TTS, audio delivery and client playback",
+  "explain_routes": false,
+  "model": "gpt-4o-mini",
+  "summary": {
+    "sequential": {
+      "n": 10,
+      "median_dialog_ms": 2566.5
+    },
+    "parallel": {
+      "n": 10,
+      "median_dialog_ms": 1559.5
+    }
+  },
+  "scenario_pairs_match": true,
+  "rows": [
+    {
+      "run": 1,
+      "sample": 1,
+      "parallel": false,
+      "dialog_ms": 3118,
+      "scenarios": [
+        "SC21"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 2208,
+        "router": 909,
+        "response": 0,
+        "dialog": 3118
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 1,
+      "parallel": true,
+      "dialog_ms": 1621,
+      "scenarios": [
+        "SC21"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1597,
+        "router": 1620,
+        "response": 0,
+        "dialog": 1621
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 2,
+      "parallel": true,
+      "dialog_ms": 5002,
+      "scenarios": [
+        "SC18"
+      ],
+      "reply": "О какой страховке идёт речь?",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 4999,
+        "router": 868,
+        "response": 0,
+        "dialog": 5002
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 2,
+      "parallel": false,
+      "dialog_ms": 2423,
+      "scenarios": [
+        "SC18"
+      ],
+      "reply": "О какой страховке идёт речь?",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1644,
+        "router": 779,
+        "response": 0,
+        "dialog": 2423
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 3,
+      "parallel": false,
+      "dialog_ms": 2751,
+      "scenarios": [
+        "SC31"
+      ],
+      "reply": "Оплата КАСКО возможна в рассрочку на 2 или 4 равные платежа без переплаты.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1087,
+        "router": 944,
+        "response": 720,
+        "dialog": 2751
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 3,
+      "parallel": true,
+      "dialog_ms": 3650,
+      "scenarios": [
+        "SC31"
+      ],
+      "reply": "Оплата КАСКО возможна в рассрочку на 2 или 4 равные платежа без переплаты.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 2626,
+        "router": 896,
+        "response": 1021,
+        "dialog": 3650
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 4,
+      "parallel": true,
+      "dialog_ms": 1092,
+      "scenarios": [
+        "SC33"
+      ],
+      "reply": "Қай қаладасыз?",
+      "language": "kk",
+      "latency_ms": {
+        "triage": 1088,
+        "router": 829,
+        "response": 0,
+        "dialog": 1092
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 4,
+      "parallel": false,
+      "dialog_ms": 2674,
+      "scenarios": [
+        "SC33"
+      ],
+      "reply": "Қай қаладасыз?",
+      "language": "kk",
+      "latency_ms": {
+        "triage": 1081,
+        "router": 1592,
+        "response": 0,
+        "dialog": 2674
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 5,
+      "parallel": false,
+      "dialog_ms": 2127,
+      "scenarios": [
+        "SC19"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1292,
+        "router": 835,
+        "response": 0,
+        "dialog": 2127
+      },
+      "ok": true
+    },
+    {
+      "run": 1,
+      "sample": 5,
+      "parallel": true,
+      "dialog_ms": 1250,
+      "scenarios": [
+        "SC19"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1246,
+        "router": 753,
+        "response": 0,
+        "dialog": 1249
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 1,
+      "parallel": true,
+      "dialog_ms": 1742,
+      "scenarios": [
+        "SC21"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1739,
+        "router": 797,
+        "response": 0,
+        "dialog": 1742
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 1,
+      "parallel": false,
+      "dialog_ms": 2690,
+      "scenarios": [
+        "SC21"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1690,
+        "router": 1001,
+        "response": 0,
+        "dialog": 2690
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 2,
+      "parallel": false,
+      "dialog_ms": 2459,
+      "scenarios": [
+        "SC18"
+      ],
+      "reply": "О какой страховке идёт речь?",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1248,
+        "router": 1211,
+        "response": 0,
+        "dialog": 2459
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 2,
+      "parallel": true,
+      "dialog_ms": 1498,
+      "scenarios": [
+        "SC18"
+      ],
+      "reply": "О какой страховке идёт речь?",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1495,
+        "router": 806,
+        "response": 0,
+        "dialog": 1498
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 3,
+      "parallel": true,
+      "dialog_ms": 2183,
+      "scenarios": [
+        "SC31"
+      ],
+      "reply": "Оплата КАСКО возможна в рассрочку на 2 или 4 равные платежа без переплаты.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1004,
+        "router": 697,
+        "response": 1175,
+        "dialog": 2183
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 3,
+      "parallel": false,
+      "dialog_ms": 2880,
+      "scenarios": [
+        "SC31"
+      ],
+      "reply": "Оплата КАСКО возможна в рассрочку на 2 или 4 равные платежа без переплаты.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1341,
+        "router": 705,
+        "response": 833,
+        "dialog": 2880
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 4,
+      "parallel": false,
+      "dialog_ms": 1910,
+      "scenarios": [
+        "SC33"
+      ],
+      "reply": "Қай қаладасыз?",
+      "language": "kk",
+      "latency_ms": {
+        "triage": 1155,
+        "router": 755,
+        "response": 0,
+        "dialog": 1910
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 4,
+      "parallel": true,
+      "dialog_ms": 1465,
+      "scenarios": [
+        "SC33"
+      ],
+      "reply": "Қай қаладасыз?",
+      "language": "kk",
+      "latency_ms": {
+        "triage": 1463,
+        "router": 857,
+        "response": 0,
+        "dialog": 1465
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 5,
+      "parallel": true,
+      "dialog_ms": 1025,
+      "scenarios": [
+        "SC19"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1023,
+        "router": 726,
+        "response": 0,
+        "dialog": 1025
+      },
+      "ok": true
+    },
+    {
+      "run": 2,
+      "sample": 5,
+      "parallel": false,
+      "dialog_ms": 1901,
+      "scenarios": [
+        "SC19"
+      ],
+      "reply": "Подскажите, пожалуйста, ваш номер телефона.",
+      "language": "ru",
+      "latency_ms": {
+        "triage": 1068,
+        "router": 833,
+        "response": 0,
+        "dialog": 1901
+      },
+      "ok": true
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from urllib.error import URLError
@@ -47,6 +48,25 @@ class TelegramBotTests(unittest.TestCase):
         self.api.send_voice.assert_called_once_with(1, b"ID3 voice")
         self.assertIn("Здравствуйте", self.audio.synthesize.call_args.args[0])
         self.assertEqual(self.bot.sessions[1].manager.state.turn, 1)
+
+    def test_speech_starts_while_text_is_delivered(self):
+        synthesis_started, text_sent = Event(), Event()
+
+        def synthesize(*args):
+            synthesis_started.set()
+            self.assertTrue(text_sent.wait(2), "Text waited for complete synthesis")
+            return b"audio"
+
+        def send_text(*args):
+            self.assertTrue(synthesis_started.wait(2), "Synthesis waited for text delivery")
+            text_sent.set()
+
+        self.audio.synthesize.side_effect = synthesize
+        self.api.send_text.side_effect = send_text
+        self.bot.process_update(update(1, voice={"file_id": "voice-1", "duration": 3}))
+        self.api.send_text.assert_called_once()
+        self.assertIn("Распознано", self.api.send_text.call_args.args[1])
+        self.api.send_voice.assert_called_once_with(1, b"audio")
 
     def test_chats_have_separate_state_and_reset(self):
         self.bot.process_update(update(1, text="Здравствуйте"))
@@ -98,6 +118,8 @@ class TelegramBotTests(unittest.TestCase):
         trace = self.api.send_trace.call_args.args[1]
         self.assertEqual(trace["event"], "greeting")
         self.assertEqual(trace["latency_ms"]["stt"], 0)
+        self.assertIsNone(trace["latency_ms"]["total"])
+        self.assertFalse(trace["parallel_routing"])
         self.assertEqual(self.bot.sessions[1].manager.state.turn, 1)
 
     def test_long_recording_is_rejected_before_download(self):

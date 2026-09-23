@@ -3,6 +3,7 @@
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 from src.agent.catalog import Catalog, mask_private
@@ -101,7 +102,14 @@ OPERATOR_ACKS = {
 class DialogManager:
     """Ведёт один разговор и выполняет действия после проверок и подтверждения."""
 
-    def __init__(self, llm, catalog: Catalog | None = None, backend: MockBackend | None = None):
+    def __init__(
+        self,
+        llm,
+        catalog: Catalog | None = None,
+        backend: MockBackend | None = None,
+        *,
+        parallel: bool = True,
+    ):
         self.catalog = catalog or Catalog()
         self.backend = backend or MockBackend(self.catalog)
         self.llm = llm
@@ -109,6 +117,24 @@ class DialogManager:
         self._actions: list[dict] = []
         self._routed: list[str] = []
         self._event: str | None = None
+        self.parallel = parallel
+        self._timings: dict[str, int] = {}
+        self._router_called = False
+        self._parallel_routing_used = False
+        self._completed_slots: dict = {}
+
+    def _timed(self, stage, function, *args):
+        started = time.perf_counter()
+        try:
+            return function(*args)
+        finally:
+            self._timings[stage] = self._timings.get(stage, 0) + round(
+                (time.perf_counter() - started) * 1000
+            )
+
+    def _route(self, text: str) -> list[str]:
+        self._router_called = True
+        return self._timed("router", self.llm.route, text)
 
     def say(self, ru: str, kk: str) -> str:
         return kk if self.state.language == "kk" else ru
@@ -118,10 +144,15 @@ class DialogManager:
         started = time.perf_counter()
         self._actions, self._routed = [], []
         self._event = None
+        self._timings = {"triage": 0, "router": 0, "response": 0}
+        self._router_called = False
+        self._parallel_routing_used = False
+        self._completed_slots = {}
         self.state.turn += 1
         try:
             reply = self._handle(text.strip())
         except ModelError as exc:
+            self._event = "model_error"
             logging.getLogger(__name__).warning("Ошибка диалоговой модели: %s", exc)
             reply = self.say(
                 "Не удалось разобрать ответ. Повторите, пожалуйста.",
@@ -145,7 +176,20 @@ class DialogManager:
                 "scenarios": self._routed or ([active.scenario_id] if active else []),
                 "active_scenario": active.scenario_id if active else None,
                 "client_id": self.state.client_id,
-                "slots": active.slots if active else {},
+                "slots": active.slots if active else self._completed_slots,
+                "router_called": self._router_called,
+                "routing": None,
+                "alternatives": [],
+                "reason": {
+                    "greeting": "Отдельное приветствие: локальный ответ без выбора бизнес-сценария.",
+                    "confirmed_action": "Явное подтверждение ранее показанной операции.",
+                    "slot_answer": "Заполнение ожидаемого поля; сценарий сохранён.",
+                    "continuation": "Продолжение активного сценария после проверки полей.",
+                    "resume": "Возврат к сохранённой задаче.",
+                    "operator_handoff": "Передача оператору по правилам диалогового движка.",
+                }.get(
+                    self._event, "Выбор LLM по каталогу; подробное объяснение доступно в веб-демо."
+                ),
                 "expected_slot": self.state.expected_slot,
                 "awaiting_confirmation": self.state.pending is not None,
                 "awaiting_resume": self.state.awaiting_resume,
@@ -153,7 +197,11 @@ class DialogManager:
                 "queued": [t.scenario_id for t in self.state.queue],
                 "suspended": [t.scenario_id for t in self.state.suspended],
                 "actions": self._actions,
-                "latency_ms": {"total": round((time.perf_counter() - started) * 1000)},
+                "latency_ms": {
+                    **self._timings,
+                    "dialog": round((time.perf_counter() - started) * 1000),
+                },
+                "parallel_routing": self._parallel_routing_used,
             }
         )
         return TurnResult(reply, trace)
@@ -196,6 +244,8 @@ class DialogManager:
             self.state.language = OPERATOR_ACKS.get(answer, self.state.language)
             return self._handoff_status()
         if answer in YES and self.state.pending:
+            self._event = "confirmed_action"
+            self._routed = [self.state.active.scenario_id] if self.state.active else []
             pending = self.state.pending
             # Снять подтверждение ДО выполнения: повторное «да» не повторяет действие.
             self.state.pending = None
@@ -223,8 +273,35 @@ class DialogManager:
         # Уже записанные цифры не отправляем модели для повторного переписывания.
         # Эта ветка заполняет ожидаемое поле, а не выбирает бизнес-сценарий.
         field = self.state.expected_slot
+        if (
+            self.state.active
+            and field == "injured"
+            and answer in {"да", "есть", "нет", "иә", "ия", "бар", "жоқ"}
+        ):
+            self._event = "slot_answer"
+            self.state.pending = None
+            self.state.language = "kk" if answer in {"иә", "ия", "бар", "жоқ"} else "ru"
+            self.state.active.slots[field] = answer in {"да", "есть", "иә", "ия", "бар"}
+            return self._advance()
+        if (
+            self.state.active
+            and field == "location"
+            and re.fullmatch(
+                r"(?:ул(?:ица)?\.?\s*)?[a-zа-яёәғқңөұүһі]\s*[-–]?\s*\d{1,4}\s*,?\s*"
+                r"(?:д(?:ом)?\.?|үй)\s*\d{1,4}(?:[/-]\d{1,4})?[a-zа-я]?[.!]?",
+                text,
+                re.IGNORECASE,
+            )
+        ):
+            # Короткая запись улицы/дома заполняет только ожидаемый адрес.
+            # Это сообщение клиента, а не результат проверки по карте.
+            self._event = "slot_answer"
+            self.state.pending = None
+            self.state.active.slots[field] = text
+            return self._advance()
         numeric = identifier_digits(text) if field in {"phone", "iin"} else None
         if self.state.active and numeric is not None:
+            self._event = "slot_answer"
             self.state.pending = None
             try:
                 value = self.catalog.normalize(field, numeric)
@@ -234,8 +311,22 @@ class DialogManager:
             return self._advance()
 
         # Любое уточнение или смена темы требует нового чтения условий операции.
+        prefetched = None
         try:
-            understood = self.llm.understand(text, self.state)
+            if (
+                self.parallel
+                and not self.state.active
+                and not (self.state.queue or self.state.suspended or self.state.operator_handoff)
+            ):
+                # Независимые чтения выполняются параллельно. Ни один поток
+                # не меняет состояние и не вызывает бизнес-действия.
+                self._parallel_routing_used = True
+                with ThreadPoolExecutor(max_workers=2) as workers:
+                    routing = workers.submit(self._route, text)
+                    understood = self._timed("triage", self.llm.understand, text, self.state)
+                    prefetched = routing.result()
+            else:
+                understood = self._timed("triage", self.llm.understand, text, self.state)
         finally:
             self.state.pending = None
             self.state.awaiting_resume = False
@@ -257,24 +348,25 @@ class DialogManager:
                 normalized[key] = self.catalog.normalize(key, value)
             except (ValueError, TypeError, OverflowError):
                 invalid.append(key)
-        ids = None
+        ids = prefetched
         if understood.mode == "continue" and self.state.active:
             # Проверяем длинные ответы и ответы без подходящего поля независимым
             # LLM-router: ошибочное continue не должно поглощать новую просьбу.
             expected = self.state.expected_slot
             if len(text.split()) > 8 or (expected and expected not in normalized):
-                candidate_ids = self.llm.route(text)
+                candidate_ids = self._route(text)
                 business_ids = [sid for sid in candidate_ids if sid in self.catalog.scenarios]
                 if business_ids and business_ids != [self.state.active.scenario_id]:
                     ids = candidate_ids
         if understood.mode == "continue" and self.state.active and ids is None:
+            self._event = "continuation"
             self.state.active.slots.update(normalized)
             if invalid:
                 self.state.active.slots.pop(invalid[0], None)
                 return self._ask(invalid[0], invalid=True)
             return self._advance()
 
-        ids = ids if ids is not None else self.llm.route(text)
+        ids = ids if ids is not None else self._route(text)
         self._routed = ids
         if any(s not in self.catalog.scenarios and s not in self.catalog.system for s in ids):
             raise ModelError("Unknown scenario")
@@ -318,6 +410,10 @@ class DialogManager:
 
     def _ask(self, field: str, *, invalid=False) -> str:
         self.state.expected_slot = field
+        if field == "injured":
+            # Один вопрос: «да» больше не может означать одновременно
+            # «все целы» и «есть пострадавшие».
+            return self.say("Есть ли пострадавшие?", "Зардап шеккендер бар ма?")
         if field == "phone" and invalid:
             return self.say(
                 "Не удалось получить полный номер. Напишите его текстом: +7 и ещё 10 цифр "
@@ -423,10 +519,27 @@ class DialogManager:
             claims = self.backend.claims(self.state.client_id)
             if len(claims) == 1:
                 task.slots["claim_number"] = claims[0]["claim_number"]
+        emergency_notice = ""
+        if (
+            sid == "SC11"
+            and task.slots.get("injured") is True
+            and not task.attempts.get("injury_advised")
+        ):
+            task.attempts["injury_advised"] = 1
+            emergency_notice = self.say(
+                "Если ещё не звонили, немедленно позвоните 112. "
+                "Это демо не вызывает экстренные службы. ",
+                "Әлі хабарласпасаңыз, дереу 112-ге қоңырау шалыңыз. "
+                "Бұл демо жедел қызметтерді шақырмайды. ",
+            )
         for key in required:
             if task.slots.get(key) in (None, "", []):
                 question = self._ask(key)
-                if sid == "SC11" and not task.attempts.get("urgency_advised"):
+                if (
+                    sid == "SC11"
+                    and task.slots.get("injured") is not True
+                    and not task.attempts.get("urgency_advised")
+                ):
                     task.attempts["urgency_advised"] = 1
                     question = (
                         self.say(
@@ -435,7 +548,7 @@ class DialogManager:
                         )
                         + question
                     )
-                return question
+                return emergency_notice + question
         self.state.expected_slot = None
         arguments = deepcopy(task.slots)
         arguments.update(client_id=self.state.client_id, scenario_id=sid)
@@ -451,7 +564,7 @@ class DialogManager:
         result = self._call(action, arguments)
         reply = self._result_text(action, result)
         if action == "transfer_to_operator":
-            return self._finish_handoff(reply)
+            return self._finish_handoff(emergency_notice + reply)
         if sid == "SC30" and any(
             p["status"] == "charged_policy_not_issued" for p in result["payments"]
         ):
@@ -562,7 +675,13 @@ class DialogManager:
         if action in {"create_complaint", "create_dispute", "create_callback", "report_fraud"}:
             return self.say("Обращение зарегистрировано в демо.", "Өтініш демода тіркелді.")
         try:
-            return self.llm.respond(self.state.language, f"Сообщить результат {action}", result)
+            return self._timed(
+                "response",
+                self.llm.respond,
+                self.state.language,
+                f"Сообщить результат {action}",
+                result,
+            )
         except ModelError:
             return self.say(
                 "Данные получены, но не удалось сформулировать ответ. Повторите запрос, пожалуйста.",
@@ -570,6 +689,8 @@ class DialogManager:
             )
 
     def _complete(self, reply: str, *, offer_resume=True) -> str:
+        if self.state.active:
+            self._completed_slots = deepcopy(self.state.active.slots)
         self.state.active = None
         self.state.expected_slot = None
         self.state.pending = None
@@ -580,6 +701,7 @@ class DialogManager:
         return reply
 
     def _resume(self) -> str:
+        self._event = "resume"
         self.state.awaiting_resume = False
         self.state.operator_handoff = False
         if self.state.queue:

@@ -386,6 +386,72 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(result.trace["expected_slot"], "location")
         self.assertIs(self.manager.state.active.slots["injured"], False)
 
+    def test_accident_question_has_one_unambiguous_yes_no_meaning(self):
+        result = self.turn(ids=["SC11"])
+        self.assertIn("Есть ли пострадавшие?", result.text)
+        self.assertNotIn("Все целы", result.text)
+
+    def test_short_injury_answers_do_not_need_another_model_call(self):
+        for text, value, language in (
+            ("да", True, "ru"),
+            ("есть", True, "ru"),
+            ("нет", False, "ru"),
+            ("бар", True, "kk"),
+            ("жоқ", False, "kk"),
+        ):
+            with self.subTest(text=text):
+                manager = DialogManager(FakeLLM())
+                manager.state.active = Task("SC11")
+                manager.state.expected_slot = "injured"
+                manager.llm.failure = True
+                result = manager.handle(text)
+                self.assertIs(result.trace["slots"]["injured"], value)
+                self.assertEqual(result.trace["expected_slot"], "location")
+                self.assertEqual(result.trace["language"], language)
+                self.assertFalse(result.trace["router_called"])
+                if value:
+                    self.assertIn("112", result.text)
+
+    def test_reported_casualties_trigger_notice_even_after_initial_warning(self):
+        self.turn(ids=["SC11"])
+        result = self.turn(mode="continue", slots={"injured": True}, text="Пассажир погиб")
+        self.assertEqual(result.trace["expected_slot"], "location")
+        self.assertIn("немедленно позвоните 112", result.text)
+        self.assertIn("не вызывает экстренные службы", result.text)
+        self.assertNotIn("Есть ли пострадавшие?", result.text)
+
+    def test_initial_casualties_and_address_do_not_skip_emergency_notice(self):
+        result = self.turn(ids=["SC11"], slots={"injured": True, "location": "ул. Тестовая, 1"})
+        self.assertIn("112", result.text)
+        self.assertTrue(result.trace["operator_handoff"])
+        self.assertIn("Живой оператор в этом демо не подключается", result.text)
+
+    def test_compact_location_is_preserved_and_forwarded_without_model(self):
+        for location in ("А91 Д13", "Б17 д. 42", "A12 дом 7/1", "А91 үй 13"):
+            with self.subTest(location=location):
+                manager = DialogManager(FakeLLM())
+                manager.state.active = Task("SC11", {"injured": True})
+                manager.state.expected_slot = "location"
+                manager.llm.failure = True
+                result = manager.handle(location)
+                self.assertTrue(result.trace["operator_handoff"])
+                self.assertEqual(result.trace["slots"]["location"], location)
+                handoff = next(
+                    a for a in result.trace["actions"] if a["name"] == "transfer_to_operator"
+                )
+                self.assertEqual(handoff["result"]["summary"]["slots"]["location"], location)
+                self.assertFalse(result.trace["router_called"])
+
+    def test_new_request_containing_address_is_not_swallowed_by_local_parser(self):
+        self.turn(ids=["SC11"], slots={"injured": False})
+        result = self.turn(
+            ids=["SC33"],
+            slots={"city": "Almaty"},
+            text="А91 Д13, а сначала скажите адрес офиса в Алматы",
+        )
+        self.assertEqual(result.trace["scenarios"], ["SC33"])
+        self.assertIn("SC11", result.trace["suspended"])
+
     def test_unsupported_issuance_hands_off_without_fake_policy(self):
         result = self.turn(ids=["SC02"])
         self.assertIn("оператор", result.text)
@@ -535,6 +601,86 @@ class LLMContractTests(unittest.TestCase):
         manager.state.expected_slot = "injured"
         result = DialogLLM(client, manager.catalog).understand("нет", manager.state)
         self.assertIs(result.slots["injured"], False)
+
+    def test_casualty_evidence_is_not_discarded(self):
+        for text, language in (
+            ("да один умер", "ru"),
+            ("есть. умер водитель другой", "ru"),
+            ("Пассажир погиб", "ru"),
+            ("Человек без сознания", "ru"),
+            ("Жүргізуші қайтыс болды", "kk"),
+            ("Бір адам қаза тапты", "kk"),
+            ("Адам өлді", "kk"),
+            ("Адам көз жұмды", "kk"),
+        ):
+            with self.subTest(text=text):
+                client = self.response_client(
+                    {
+                        "language": language,
+                        "mode": "continue",
+                        "slots": {"injured": True},
+                        "evidence": {"injured": text},
+                    }
+                )
+                manager = DialogManager(FakeLLM())
+                manager.state.active = Task("SC11")
+                manager.state.expected_slot = "injured"
+                understanding = DialogLLM(client, manager.catalog).understand(text, manager.state)
+                self.assertIs(understanding.slots["injured"], True)
+
+    def test_fatal_reply_and_short_address_complete_the_accident_flow(self):
+        client = self.response_client(
+            {
+                "language": "ru",
+                "mode": "continue",
+                "slots": {"injured": True},
+                "evidence": {"injured": "один умер"},
+            }
+        )
+        manager = DialogManager(DialogLLM(client, Catalog()))
+        manager.state.active = Task("SC11", attempts={"urgency_advised": 1})
+        manager.state.expected_slot = "injured"
+        result = manager.handle("да один умер")
+        self.assertIs(result.trace["slots"]["injured"], True)
+        self.assertEqual(result.trace["expected_slot"], "location")
+        self.assertIn("112", result.text)
+        result = manager.handle("А91 Д13")
+        self.assertTrue(result.trace["operator_handoff"])
+        self.assertIsNone(result.trace["expected_slot"])
+        self.assertEqual(result.trace["slots"]["location"], "А91 Д13")
+        client.chat.completions.create.assert_called_once()
+
+    def test_no_fatalities_does_not_prove_no_injuries(self):
+        for text in ("Никто не умер", "Погибших нет", "Мы столкнулись"):
+            with self.subTest(text=text):
+                client = self.response_client(
+                    {
+                        "language": "ru",
+                        "mode": "continue",
+                        "slots": {"injured": False},
+                        "evidence": {"injured": text},
+                    }
+                )
+                manager = DialogManager(FakeLLM())
+                manager.state.active = Task("SC11")
+                manager.state.expected_slot = "injured"
+                result = DialogLLM(client, manager.catalog).understand(text, manager.state)
+                self.assertNotIn("injured", result.slots)
+
+    def test_explicit_unharmed_report_is_accepted(self):
+        for text, language in (("Все целы", "ru"), ("Бәрі аман", "kk")):
+            with self.subTest(text=text):
+                client = self.response_client(
+                    {
+                        "language": language,
+                        "mode": "continue",
+                        "slots": {"injured": False},
+                        "evidence": {"injured": text},
+                    }
+                )
+                manager = DialogManager(FakeLLM())
+                result = DialogLLM(client, manager.catalog).understand(text, manager.state)
+                self.assertIs(result.slots["injured"], False)
 
     def test_phone_uses_source_digits_instead_of_model_invented_value(self):
         client = self.response_client(

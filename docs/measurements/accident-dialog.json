@@ -1,0 +1,193 @@
+{
+  "scope": "Synthetic accident dialog replay through the live OpenAI API; no Telegram messages or emergency calls were sent",
+  "model": "gpt-4o-mini",
+  "before": [
+    {
+      "input": "Здравствуйте хочу перевести деньги",
+      "reply": "С этим я, к сожалению, не помогу. Могу подсказать по страховке авто, здоровья, жилья и поездок.",
+      "scenarios": [
+        "SYS_OUT_OF_SCOPE"
+      ],
+      "slots": {},
+      "expected_slot": null,
+      "operator_handoff": false
+    },
+    {
+      "input": "Здравствуйте у меня авария",
+      "reply": "Если есть пострадавшие, сначала звоните 112. Все целы? Есть пострадавшие?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария"
+      },
+      "expected_slot": "injured",
+      "operator_handoff": false
+    },
+    {
+      "input": "да один умер",
+      "reply": "Все целы? Есть пострадавшие?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария"
+      },
+      "expected_slot": "injured",
+      "operator_handoff": false
+    },
+    {
+      "input": "А91 Д13",
+      "reply": "Проверьте формат данных. Какой госномер у машины виновника?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария"
+      },
+      "expected_slot": "culprit_vehicle_plate",
+      "operator_handoff": false
+    }
+  ],
+  "after": [
+    {
+      "input": "Здравствуйте хочу перевести деньги",
+      "reply": "С этим я, к сожалению, не помогу. Могу подсказать по страховке авто, здоровья, жилья и поездок.",
+      "scenarios": [
+        "SYS_OUT_OF_SCOPE"
+      ],
+      "slots": {},
+      "expected_slot": null,
+      "operator_handoff": false
+    },
+    {
+      "input": "Здравствуйте у меня авария",
+      "reply": "Если есть пострадавшие, сначала звоните 112. Есть ли пострадавшие?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария"
+      },
+      "expected_slot": "injured",
+      "operator_handoff": false
+    },
+    {
+      "input": "да один умер",
+      "reply": "Если ещё не звонили, немедленно позвоните 112. Это демо не вызывает экстренные службы. Где вы сейчас находитесь?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария",
+        "injured": true
+      },
+      "expected_slot": "location",
+      "operator_handoff": false
+    },
+    {
+      "input": "А91 Д13",
+      "reply": "Запрос и контекст переданы оператору в демо. Живой оператор в этом демо не подключается.",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "incident_description": "авария",
+        "topic": "Здравствуйте у меня авария",
+        "injured": true,
+        "location": "А91 Д13"
+      },
+      "expected_slot": null,
+      "operator_handoff": true
+    }
+  ],
+  "variants": [
+    {
+      "input": "есть. умер водитель другой",
+      "reply": "Если ещё не звонили, немедленно позвоните 112. Это демо не вызывает экстренные службы. Где вы сейчас находитесь?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "injured": true
+      },
+      "expected_slot": "location",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": true
+    },
+    {
+      "input": "Жүргізуші қайтыс болды",
+      "reply": "Әлі хабарласпасаңыз, дереу 112-ге қоңырау шалыңыз. Бұл демо жедел қызметтерді шақырмайды. Қазір қай жердесіз?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "injured": true
+      },
+      "expected_slot": "location",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": true
+    },
+    {
+      "input": "Все целы",
+      "reply": "Где вы сейчас находитесь?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "injured": false
+      },
+      "expected_slot": "location",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": false
+    },
+    {
+      "input": "Погибших нет",
+      "reply": "Есть ли пострадавшие?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {},
+      "expected_slot": "injured",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": null
+    },
+    {
+      "input": "Никто не пострадал",
+      "reply": "Где вы сейчас находитесь?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "injured": false
+      },
+      "expected_slot": "location",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": false
+    },
+    {
+      "input": "Бәрі аман",
+      "reply": "Қазір қай жердесіз?",
+      "scenarios": [
+        "SC11"
+      ],
+      "slots": {
+        "injured": false
+      },
+      "expected_slot": "location",
+      "operator_handoff": false,
+      "passed": true,
+      "expected_injured": false
+    }
+  ]
+}

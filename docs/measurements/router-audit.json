@@ -1,0 +1,88 @@
+{
+  "model": "gpt-4o-mini",
+  "n": 104,
+  "primary_correct": 104,
+  "full_match": 104,
+  "explanations": [
+    {
+      "id": "U028",
+      "selected": [
+        "SC14"
+      ],
+      "explanation": {
+        "scenarios": [
+          {
+            "scenario_id": "SC14",
+            "confidence": 1.0,
+            "reason": "Клиент сообщает о повреждении застрахованного имущества."
+          }
+        ],
+        "alternatives": []
+      }
+    },
+    {
+      "id": "U071",
+      "selected": [
+        "SC36"
+      ],
+      "explanation": {
+        "scenarios": [
+          {
+            "scenario_id": "SC36",
+            "confidence": 1.0,
+            "reason": "Клиент просит перезвонить позже, что соответствует сценарию."
+          }
+        ],
+        "alternatives": []
+      }
+    },
+    {
+      "id": "U098",
+      "selected": [
+        "SYS_OUT_OF_SCOPE"
+      ],
+      "explanation": {
+        "scenarios": [
+          {
+            "scenario_id": "SYS_OUT_OF_SCOPE",
+            "confidence": 1.0,
+            "reason": "Запрос не относится к услугам страхования Saqta."
+          }
+        ],
+        "alternatives": []
+      }
+    },
+    {
+      "id": "U100",
+      "selected": [
+        "SYS_OUT_OF_SCOPE"
+      ],
+      "explanation": {
+        "scenarios": [
+          {
+            "scenario_id": "SYS_OUT_OF_SCOPE",
+            "confidence": 1.0,
+            "reason": "Запрос не относится к услугам страхования Saqta."
+          }
+        ],
+        "alternatives": []
+      }
+    },
+    {
+      "id": "U101",
+      "selected": [
+        "SYS_OUT_OF_SCOPE"
+      ],
+      "explanation": {
+        "scenarios": [
+          {
+            "scenario_id": "SYS_OUT_OF_SCOPE",
+            "confidence": 1.0,
+            "reason": "Запрос не относится к услугам страхования Saqta."
+          }
+        ],
+        "alternatives": []
+      }
+    }
+  ]
+}
