@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="498" viewBox="0 0 1200 498" role="img" aria-labelledby="title description">
+  <title id="title">Одна реплика — несколько задач</title>
+  <desc id="description">Иллюстрация: клиент просит записать к лору и проверить покрытие лекарств. Маршрутизатор выбирает SC21 и SC22. Движок уточняет данные, запрашивает согласие на запись и предлагает вернуться ко второму вопросу. Это схема, а не результат отдельного прогона.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#102d2a"/>
+      <stop offset="1" stop-color="#101d28"/>
+    </linearGradient>
+    <linearGradient id="signal">
+      <stop stop-color="#a7f3d0"/>
+      <stop offset="1" stop-color="#42cdb6"/>
+    </linearGradient>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#345249" opacity="0.48"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1200" height="498" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="498" fill="url(#background)"/>
+    <rect width="1200" height="498" fill="url(#grid)"/>
+    <g font-family="Arial, Helvetica, sans-serif">
+      <circle cx="43" cy="40" r="4" fill="#a7f3d0"/>
+      <text x="58" y="44" font-size="11" letter-spacing="2.2" font-weight="700" fill="#a7d7c7">SAQTADAUYS / РАЗГОВОР В ДЕТАЛЯХ</text>
+      <text x="1158" y="44" text-anchor="end" font-size="11" fill="#8facaa">ИЛЛЮСТРАЦИЯ МАРШРУТА</text>
+      <text x="38" y="95" font-size="30" font-weight="700" letter-spacing="-0.6" fill="#f1faf6">Один голос. Две просьбы. Понятный следующий шаг.</text>
+
+      <!-- Реплика остаётся свободной: меню не требуется. -->
+      <rect x="38" y="129" width="347" height="286" rx="18" fill="#163330" stroke="#3b6555"/>
+      <rect x="58" y="150" width="31" height="27" rx="8" fill="#284b3e"/>
+      <text x="73.5" y="169" text-anchor="middle" font-size="12" fill="#c0efd5">01</text>
+      <text x="102" y="169" font-size="11" letter-spacing="1.6" fill="#9fc7b8">КЛИЕНТ ГОВОРИТ</text>
+      <text x="60" y="220" font-size="23" font-weight="700" fill="#f1faf6">
+        <tspan x="60">«Запишите к лору.</tspan>
+        <tspan x="60" dy="33">И ещё — покроет ли</tspan>
+        <tspan x="60" dy="33">полис лекарства?»</tspan>
+      </text>
+      <path d="M62 344v10 M73 338v22 M84 330v38 M95 336v26 M106 317v64 M117 329v40 M128 339v20 M139 323v52 M150 313v72 M161 330v38 M172 339v20 M183 327v44 M194 319v60 M205 334v30 M216 340v18 M227 329v40 M238 335v28 M249 340v18" stroke="url(#signal)" stroke-width="4" stroke-linecap="round"/>
+      <text x="361" y="356" text-anchor="end" font-size="11" fill="#93b8a9">RU / KK</text>
+
+      <!-- Выбор LLM и очередь движка показаны раздельно. -->
+      <path d="M389 273h21m-6-5 6 5-6 5" fill="none" stroke="#71bba0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="417" y="129" width="347" height="286" rx="18" fill="#142b30" stroke="#345059"/>
+      <rect x="437" y="150" width="31" height="27" rx="8" fill="#243f45"/>
+      <text x="452.5" y="169" text-anchor="middle" font-size="12" fill="#c8e4e3">02</text>
+      <text x="481" y="169" font-size="11" letter-spacing="1.6" fill="#a0c6cb">LLM ВЫБИРАЕТ СЦЕНАРИИ</text>
+      <rect x="437" y="198" width="307" height="88" rx="12" fill="#1a3c37" stroke="#477563"/>
+      <text x="454" y="222" font-size="10" letter-spacing="1.3" fill="#9dcab8">ТЕКУЩАЯ ЗАДАЧА</text>
+      <text x="454" y="251" font-size="23" font-weight="700" fill="#b1f1cf">SC21</text>
+      <text x="535" y="250" font-size="16" fill="#e2efe8">Запись к врачу</text>
+      <rect x="437" y="301" width="307" height="88" rx="12" fill="#20323d" stroke="#415563" stroke-dasharray="4 4"/>
+      <text x="454" y="325" font-size="10" letter-spacing="1.3" fill="#a9bcca">В ОЧЕРЕДИ</text>
+      <text x="454" y="355" font-size="23" font-weight="700" fill="#b8d3e9">SC22</text>
+      <text x="535" y="353" font-size="15" fill="#d7e3ec">Покрытие лекарств</text>
+
+      <!-- Изменения выполняются после проверки полей и подтверждения. -->
+      <path d="M768 273h21m-6-5 6 5-6 5" fill="none" stroke="#71bba0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="796" y="129" width="366" height="286" rx="18" fill="#14272b" stroke="#345059"/>
+      <rect x="816" y="150" width="31" height="27" rx="8" fill="#243f45"/>
+      <text x="831.5" y="169" text-anchor="middle" font-size="12" fill="#c8e4e3">03</text>
+      <text x="860" y="169" font-size="11" letter-spacing="1.6" fill="#a0c6cb">ДВИЖОК ВЕДЁТ ДИАЛОГ</text>
+      <path d="M832 222v125" fill="none" stroke="#3e6059" stroke-width="2"/>
+      <circle cx="832" cy="222" r="6" fill="#a7f3d0"/>
+      <text x="852" y="226" font-size="18" font-weight="700" fill="#e5f4ed">Уточнить данные</text>
+      <text x="852" y="248" font-size="12" fill="#9ab8b0">Клиент, полис, дата приёма</text>
+      <circle cx="832" cy="285" r="6" fill="#dfc991"/>
+      <text x="852" y="289" font-size="18" font-weight="700" fill="#e5f4ed">Спросить согласие</text>
+      <text x="852" y="311" font-size="12" fill="#9ab8b0">Подтвердить конкретную запись</text>
+      <circle cx="832" cy="347" r="6" fill="#b8d3e9"/>
+      <text x="852" y="351" font-size="18" font-weight="700" fill="#e5f4ed">Вернуться к очереди</text>
+      <text x="852" y="373" font-size="12" fill="#9ab8b0">Предложить продолжить второй вопрос</text>
+
+      <path d="M38 442h1124" stroke="#2b4746"/>
+      <text x="38" y="470" font-size="12" fill="#a4bdb7">Реплика → намерения → проверка данных → подтверждение → действие</text>
+      <text x="1162" y="470" text-anchor="end" font-size="11" letter-spacing="1.2" fill="#769d91">ZETHUS / VOICE ROUTER</text>
+    </g>
+  </g>
+</svg>

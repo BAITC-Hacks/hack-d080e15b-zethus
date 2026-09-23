@@ -29,6 +29,8 @@
         <text x="221.5" y="279" text-anchor="middle">43 сценария</text>
         <rect x="298" y="257" width="147" height="35" rx="17.5" fill="#1d3937" stroke="#34504a"/>
         <text x="371.5" y="279" text-anchor="middle">Telegram demo</text>
+        <rect x="455" y="257" width="142" height="35" rx="17.5" fill="#22483e" stroke="#477763"/>
+        <text x="526" y="279" text-anchor="middle" fill="#a7f3d0">Browser voice</text>
       </g>
       <rect x="803" y="62" width="333" height="214" rx="20" fill="#142d2e" stroke="#33564d"/>
       <circle cx="834" cy="95" r="4" fill="#86efac"/>

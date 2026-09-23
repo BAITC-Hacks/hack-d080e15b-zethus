@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="432" viewBox="0 0 1200 432" role="img" aria-labelledby="title description">
+  <title id="title">SaqtaDauys — измеренная задержка</title>
+  <desc id="description">Два разных измерения. Парный замер диалога: медиана последовательных вызовов 2566,5 миллисекунды, параллельных — 1559,5 миллисекунды, по 10 ходов в каждом режиме. Снижение на 39,2 процента. Полный голосовой путь: один замер в Chromium с синтетической речью — 5190 миллисекунд от оценённого конца речи до playing. Ориентир 1,5 секунды пока не достигнут. Источник: отчёты в docs/measurements.</desc>
+  <defs>
+    <linearGradient id="paper" x2="1" y2="1">
+      <stop stop-color="#102c29"/>
+      <stop offset="1" stop-color="#111e2a"/>
+    </linearGradient>
+    <linearGradient id="bar">
+      <stop stop-color="#a7f3d0"/>
+      <stop offset="1" stop-color="#3cd0b4"/>
+    </linearGradient>
+    <pattern id="ruler" width="40" height="12" patternUnits="userSpaceOnUse">
+      <path d="M0 0v10 M10 0v4 M20 0v6 M30 0v4" fill="none" stroke="#436057"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1200" height="432" rx="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="432" fill="url(#paper)"/>
+    <rect x="28" y="23" width="1144" height="12" fill="url(#ruler)"/>
+    <g font-family="Arial, Helvetica, sans-serif">
+      <text x="38" y="67" fill="#a7d7c7" font-size="12" font-weight="700" letter-spacing="2">SAQTADAUYS / ЛИСТ ИЗМЕРЕНИЙ</text>
+      <text x="1162" y="67" text-anchor="end" fill="#9ab8b0" font-size="12">ДВА ЭКСПЕРИМЕНТА · РАЗНЫЕ ГРАНИЦЫ ЗАМЕРА</text>
+
+      <!-- Линейные длины полос пропорциональны медианам из latency-dialog.json. -->
+      <rect x="28" y="89" width="716" height="288" rx="16" fill="#142e2c" stroke="#33584d"/>
+      <text x="49" y="122" fill="#9ab8b0" font-size="12" letter-spacing="1.4">01 / ОБРАБОТКА ДИАЛОГА</text>
+      <text x="49" y="160" fill="#edf8f1" font-size="28" font-weight="700">Меньше ожидания между вызовами.</text>
+      <text x="49" y="191" fill="#abc5bb" font-size="16">Пять запросов × два повторения · по 10 ходов на режим</text>
+
+      <text x="49" y="228" fill="#c3d7d0" font-size="15">Последовательно</text>
+      <rect x="49" y="240" width="460" height="16" rx="8" fill="#587b70"/>
+      <text x="529" y="254" fill="#d2e4db" font-size="19" font-weight="700">2566,5 мс</text>
+
+      <text x="49" y="287" fill="#c3d7d0" font-size="15">Параллельно</text>
+      <rect x="49" y="299" width="279.5" height="16" rx="8" fill="url(#bar)"/>
+      <text x="348" y="313" fill="#b3f1d1" font-size="19" font-weight="700">1559,5 мс</text>
+      <rect x="589" y="283" width="131" height="43" rx="12" fill="#224b3d" stroke="#4b8067"/>
+      <text x="654.5" y="312" text-anchor="middle" fill="#b9f7d5" font-size="25" font-weight="700">−39,2%</text>
+      <text x="49" y="353" fill="#a1beb2" font-size="15">Медиана · без STT, TTS и воспроизведения</text>
+
+      <!-- Полный голосовой путь отделён от сравнения медиан диалога. -->
+      <rect x="762" y="89" width="410" height="288" rx="16" fill="#292c28" stroke="#656047"/>
+      <text x="783" y="122" fill="#d7c99f" font-size="12" letter-spacing="1.4">02 / ПОЛНЫЙ ГОЛОСОВОЙ ПУТЬ</text>
+      <text x="783" y="188" fill="#f1e6c8" font-size="58" font-weight="700" letter-spacing="-2">5190<tspan font-size="24" letter-spacing="0"> мс</tspan></text>
+      <text x="784" y="222" fill="#d1ccbb" font-size="16">Оценённый конец речи → playing</text>
+      <text x="784" y="251" fill="#b9b8a8" font-size="15">Chromium · синтетический голос</text>
+      <path d="M784 272h365" stroke="#565446"/>
+      <text x="784" y="304" fill="#eee2be" font-size="18" font-weight="700">Один замер, не медиана</text>
+      <circle cx="789" cy="340" r="5" fill="#e1c17a"/>
+      <text x="803" y="345" fill="#d7c99f" font-size="15">Ориентир 1,5 с пока не достигнут</text>
+
+      <text x="38" y="409" fill="#92b2a7" font-size="13">Настоящий API · сохранённые отчёты · условия замеров указаны</text>
+      <text x="1162" y="409" text-anchor="end" fill="#a7d7c7" font-size="13">Методика и данные → docs/LATENCY.md</text>
+    </g>
+  </g>
+</svg>
