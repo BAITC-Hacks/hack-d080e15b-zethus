@@ -1,0 +1,151 @@
+"""Проверка голосового канала без подключения к Telegram и OpenAI."""
+
+import io
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+import unittest
+from unittest.mock import MagicMock, patch
+from urllib.error import URLError
+
+from src.agent.dialog_manager import DialogManager
+from src.agent.state import PendingAction
+from src.telegram_bot import TelegramBot, save_offset
+from src.tools.audio import AudioError, AudioService
+from src.tools.telegram_api import TelegramAPI, TelegramError
+from test_dialog import FakeLLM
+
+
+def update(number, *, user=1, text=None, voice=None, kind="private"):
+    message = {"chat": {"id": user, "type": kind}, "from": {"id": user, "is_bot": False}}
+    if text is not None:
+        message["text"] = text
+    if voice is not None:
+        message["voice"] = voice
+    return {"update_id": number, "message": message}
+
+
+class TelegramBotTests(unittest.TestCase):
+    def setUp(self):
+        self.api, self.audio = MagicMock(), MagicMock()
+        self.audio.transcribe.return_value = "Здравствуйте!"
+        self.audio.synthesize.return_value = b"ID3 voice"
+        self.api.download_voice.return_value = b"OggS speech"
+        self.bot = TelegramBot(self.api, self.audio, lambda: DialogManager(FakeLLM()))
+
+    def test_voice_runs_complete_pipeline_and_deduplicates_updates(self):
+        item = update(1, voice={"file_id": "voice-1", "duration": 3})
+        self.bot.process_update(item)
+        self.bot.process_update(item)
+        self.audio.transcribe.assert_called_once_with(b"OggS speech")
+        self.api.send_voice.assert_called_once_with(1, b"ID3 voice")
+        self.assertIn("Здравствуйте", self.audio.synthesize.call_args.args[0])
+        self.assertEqual(self.bot.sessions[1].manager.state.turn, 1)
+
+    def test_chats_have_separate_state_and_reset(self):
+        self.bot.process_update(update(1, text="Здравствуйте"))
+        self.bot.process_update(update(2, user=2, text="Сәлеметсіз бе"))
+        first = self.bot.sessions[1].manager
+        self.assertEqual(first.state.language, "ru")
+        self.assertEqual(self.bot.sessions[2].manager.state.language, "kk")
+        self.bot.process_update(update(3, text="/reset"))
+        self.assertIsNot(self.bot.sessions[1].manager, first)
+        self.assertEqual(self.bot.sessions[1].manager.state.turn, 0)
+        self.assertEqual(self.bot.sessions[2].manager.state.turn, 1)
+
+    def test_only_private_allowed_chats_reach_model(self):
+        self.bot.allowed_users = {1}
+        self.bot.process_update(update(1, user=2, voice={"file_id": "x"}))
+        self.bot.process_update(update(2, text="Здравствуйте", kind="group"))
+        self.assertFalse(self.bot.sessions)
+        self.audio.transcribe.assert_not_called()
+        self.bot.process_update(update(3, user=2, text="/id"))
+        self.assertIn("2", self.api.send_text.call_args.args[1])
+
+    def test_voice_off_and_trace_do_not_change_dialog(self):
+        self.bot.process_update(update(1, text="/voice_off"))
+        self.bot.process_update(update(2, text="/trace_on"))
+        self.bot.process_update(update(3, text="Здравствуйте!"))
+        self.audio.synthesize.assert_not_called()
+        self.api.send_trace.assert_called_once()
+        trace = self.api.send_trace.call_args.args[1]
+        self.assertEqual(trace["event"], "greeting")
+        self.assertEqual(trace["latency_ms"]["stt"], 0)
+        self.assertEqual(self.bot.sessions[1].manager.state.turn, 1)
+
+    def test_long_recording_is_rejected_before_download(self):
+        self.bot.process_update(update(1, voice={"file_id": "x", "duration": 61}))
+        self.api.download_voice.assert_not_called()
+        self.audio.transcribe.assert_not_called()
+
+    def test_transcription_failure_does_not_advance_dialog(self):
+        self.bot.process_update(update(1, text="/start"))
+        self.bot.sessions[1].manager.state.pending = PendingAction("book_appointment", {}, {})
+        self.audio.transcribe.side_effect = AudioError("Не слышно речи")
+        self.bot.process_update(update(2, voice={"file_id": "x", "duration": 2}))
+        self.assertEqual(self.bot.sessions[1].manager.state.turn, 0)
+        self.assertIsNone(self.bot.sessions[1].manager.state.pending)
+        self.audio.synthesize.assert_not_called()
+        self.assertEqual(self.api.send_text.call_args.args[1], "Не слышно речи")
+
+    def test_synthesis_failure_keeps_text_answer(self):
+        self.audio.synthesize.side_effect = AudioError("Озвучивание недоступно")
+        self.bot.process_update(update(1, text="Здравствуйте!"))
+        messages = [c.args[1] for c in self.api.send_text.call_args_list]
+        self.assertTrue(any("Здравствуйте" in text for text in messages))
+        self.assertIn("Озвучивание недоступно", messages)
+        self.api.send_voice.assert_not_called()
+
+
+class AudioTests(unittest.TestCase):
+    def test_transcription_keeps_source_language_and_rejects_empty_text(self):
+        client = MagicMock()
+        client.audio.transcriptions.create.return_value = SimpleNamespace(text="Сәлем!", segments=[])
+        service = AudioService(client)
+        self.assertEqual(service.transcribe(b"OggS speech"), "Сәлем!")
+        args = client.audio.transcriptions.create.call_args.kwargs
+        self.assertEqual(args["model"], "gpt-4o-mini-transcribe")
+        self.assertIn("Do not translate", args["prompt"])
+        self.assertNotIn("language", args)
+        self.assertEqual(args["file"][0], "voice.ogg")
+        client.audio.transcriptions.create.return_value = SimpleNamespace(text="   ")
+        with self.assertRaises(AudioError):
+            service.transcribe(b"OggS silence")
+
+    def test_speech_is_mp3_and_uses_reply_language(self):
+        client = MagicMock()
+        client.audio.speech.create.return_value = SimpleNamespace(content=b"ID3 audio")
+        self.assertEqual(AudioService(client).synthesize("Сәлем!", "kk"), b"ID3 audio")
+        args = client.audio.speech.create.call_args.kwargs
+        self.assertEqual(args["response_format"], "mp3")
+        self.assertIn("Kazakh", args["instructions"])
+
+
+class TelegramAPITests(unittest.TestCase):
+    def test_network_errors_never_expose_token(self):
+        token = "123456:SECRET_TOKEN"
+        with patch("src.tools.telegram_api.urlopen", side_effect=URLError("https://api.telegram.org/bot" + token)):
+            with self.assertRaises(TelegramError) as error:
+                TelegramAPI(token).call("getMe")
+        self.assertNotIn(token, str(error.exception))
+
+    def test_send_voice_uploads_file_with_matching_type(self):
+        with patch("src.tools.telegram_api.urlopen", return_value=io.BytesIO(b'{"ok":true,"result":{}}')) as request:
+            TelegramAPI("123:FAKE").send_voice(1, b"ID3 audio")
+        body = request.call_args.args[0].data
+        self.assertIn(b'filename="reply.mp3"', body)
+        self.assertIn(b"Content-Type: audio/mpeg", body)
+        self.assertIn(b"ID3 audio", body)
+
+    def test_checkpoint_survives_restart_and_replaces_atomically(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "state" / "offset.json"
+            save_offset(path, 42)
+            save_offset(path, 43)
+            self.assertEqual(json.loads(path.read_text())["offset"], 43)
+            self.assertFalse(path.with_suffix(".tmp").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
